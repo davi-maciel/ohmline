@@ -9,7 +9,7 @@ import { calculateCurrents, SymbolicValue } from "@/lib/currentCalculator";
 export default function CircuitCanvas() {
   const [circuit, setCircuit] = useState<Circuit>({ nodes: [], edges: [] });
   const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
-  const [mode, setMode] = useState<"add-node" | "add-edge" | "select" | "calculate-resistance">("select");
+  const [mode, setMode] = useState<"add-node" | "add-edge" | "select" | "calculate-resistance" | "delete">("select");
   const [calculationNodes, setCalculationNodes] = useState<string[]>([]);
   const [equivalentResistance, setEquivalentResistance] = useState<SymbolicResistance | null>(null);
   const [showCurrents, setShowCurrents] = useState<boolean>(true);
@@ -46,6 +46,21 @@ export default function CircuitCanvas() {
     }));
   }, []);
 
+  const deleteNode = useCallback((nodeId: string) => {
+    setCircuit((prev) => ({
+      nodes: prev.nodes.filter((n) => n.id !== nodeId),
+      // Also remove all edges connected to this node
+      edges: prev.edges.filter((e) => e.nodeA !== nodeId && e.nodeB !== nodeId),
+    }));
+  }, []);
+
+  const deleteEdge = useCallback((edgeId: string) => {
+    setCircuit((prev) => ({
+      ...prev,
+      edges: prev.edges.filter((e) => e.id !== edgeId),
+    }));
+  }, []);
+
   const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!canvasRef.current) return;
 
@@ -61,7 +76,9 @@ export default function CircuitCanvas() {
   const handleNodeClick = (nodeId: string, e: React.MouseEvent) => {
     e.stopPropagation();
 
-    if (mode === "add-edge") {
+    if (mode === "delete") {
+      deleteNode(nodeId);
+    } else if (mode === "add-edge") {
       setSelectedNodes((prev) => {
         const newSelection = [...prev, nodeId];
         if (newSelection.length === 2) {
@@ -158,6 +175,16 @@ export default function CircuitCanvas() {
             Add Edge
           </button>
           <button
+            onClick={() => setMode("delete")}
+            className={`px-4 py-2 rounded ${
+              mode === "delete"
+                ? "bg-red-500 text-white"
+                : "bg-gray-200 text-gray-700"
+            }`}
+          >
+            Delete
+          </button>
+          <button
             onClick={() => {
               setMode("calculate-resistance");
               setCalculationNodes([]);
@@ -194,6 +221,11 @@ export default function CircuitCanvas() {
             Select the second node to create an edge
           </p>
         )}
+        {mode === "delete" && (
+          <p className="mt-2 text-sm text-red-600">
+            Click on a node or edge to delete it
+          </p>
+        )}
         {mode === "calculate-resistance" && calculationNodes.length === 1 && (
           <p className="mt-2 text-sm text-gray-600">
             Select the second node to calculate equivalent resistance
@@ -222,6 +254,23 @@ export default function CircuitCanvas() {
 
             return (
               <g key={edge.id}>
+                {/* Invisible thick line for easier clicking */}
+                <line
+                  x1={nodeA.x}
+                  y1={nodeA.y}
+                  x2={nodeB.x}
+                  y2={nodeB.y}
+                  stroke="transparent"
+                  strokeWidth="20"
+                  className={mode === "delete" ? "pointer-events-auto cursor-pointer" : "pointer-events-none"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (mode === "delete") {
+                      deleteEdge(edge.id);
+                    }
+                  }}
+                />
+                {/* Visible line */}
                 <line
                   x1={nodeA.x}
                   y1={nodeA.y}
@@ -229,6 +278,7 @@ export default function CircuitCanvas() {
                   y2={nodeB.y}
                   stroke={hasNonZeroCurrent && showCurrents ? "#DC2626" : "#4B5563"}
                   strokeWidth={hasNonZeroCurrent && showCurrents ? "3" : "2"}
+                  className="pointer-events-none"
                 />
                 {/* Resistance label */}
                 <text
@@ -237,7 +287,13 @@ export default function CircuitCanvas() {
                   fill="#1F2937"
                   fontSize="12"
                   textAnchor="middle"
-                  className="pointer-events-auto"
+                  className={mode === "delete" ? "pointer-events-auto cursor-pointer" : "pointer-events-auto"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (mode === "delete") {
+                      deleteEdge(edge.id);
+                    }
+                  }}
                 >
                   {typeof edge.resistance === "number"
                     ? `${edge.resistance}Ω`

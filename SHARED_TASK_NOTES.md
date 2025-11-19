@@ -7,32 +7,27 @@
   - Connect nodes with edges (resistances)
   - Edit resistance values (supports numbers, variables like 'r', and 'Infinity')
   - Visual rendering of nodes and edges with labels
-  - UI modes: select, add-node, add-edge, calculate-resistance
+  - UI modes: select, add-node, add-edge, calculate-resistance, delete
+  - **Delete nodes/edges functionality (COMPLETED)**:
+    - Delete mode in toolbar (red button)
+    - Click on nodes to delete them (also removes connected edges)
+    - Click on edges to delete them (invisible thick line for easier clicking)
+    - Helper text when in delete mode
 - **Equivalent Resistance Calculator (COMPLETED)**
 - **Node Auto-Layout (COMPLETED)**
-- **Electric Potential & Current Calculation (COMPLETED)**:
-  - Node properties panel with voltage input fields for each node
-  - `lib/currentCalculator.ts` with SymbolicValue class for voltage/current expressions
-  - Calculates current through each edge using Ohm's law: I = (V₁ - V₂) / R
-  - Supports numeric voltages, symbolic variables (e.g., 'V'), and mixed expressions
-  - Handles special cases: zero resistance (infinite current), infinite resistance (zero current)
-  - Visual feedback: edges with current shown in red, thicker lines
-  - Current values displayed on edges in red text
-  - Toggle button to show/hide current display
-  - Tests confirm: simple circuits, series, symbolic voltages/resistances, edge cases work correctly
+- **Electric Potential & Current Calculation (COMPLETED)**
 
 ## Next Priorities
 
 ### 1. Enhanced Circuit Editing (High Priority)
-- Delete nodes/edges functionality
 - Drag nodes to reposition them manually
 - Select multiple nodes/edges
+- Keyboard shortcuts (e.g., Delete key to delete selected items)
 
 ### 2. Additional Features (Medium Priority)
 - Undo/redo functionality
 - Save/load circuit designs (JSON export/import)
 - Export circuit as image (PNG/SVG)
-- Keyboard shortcuts
 
 ## Technical Notes
 - Circuit state in `components/CircuitCanvas.tsx` using React hooks
