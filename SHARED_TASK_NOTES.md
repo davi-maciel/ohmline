@@ -15,20 +15,23 @@
   - Combines series (addition) and parallel resistances correctly
   - UI mode to select two nodes and display R_eq
   - Tests confirm: series, parallel, symbolic, mixed, infinity, and disconnected cases work
+- **Node Auto-Layout (COMPLETED)**:
+  - Force-directed graph layout algorithm in `lib/graphLayout.ts`
+  - Physics simulation with repulsive forces (nodes push apart) and attractive forces (edges pull nodes together)
+  - Green "Auto-Layout" button in toolbar
+  - Automatically redistributes nodes for better visualization while preserving circuit topology
+  - Keeps nodes within canvas bounds
+  - Tests confirm: single node centering, spreading nodes, series/parallel circuits work correctly
 
 ## Next Priorities
 
-### 1. Node Redistribution/Auto-Layout (High Priority)
-Add a button to automatically reorganize nodes for better visualization.
-- Consider using force-directed graph layout algorithms
-- Libraries to explore: d3-force, cytoscape.js, or custom implementation
-
-### 2. Electric Potential & Current Calculation (Medium Priority)
+### 1. Electric Potential & Current Calculation (High Priority)
 - Add input fields to set potential (voltage) at each node
-- Calculate current flow through the circuit using Ohm's law (I = V/R)
+- Calculate current flow through the circuit using Ohm's law and Kirchhoff's laws
 - Display current values on edges
+- Handle symbolic voltages (like variables in resistances)
 
-### 3. Enhanced Features (Lower Priority)
+### 2. Enhanced Features (Medium Priority)
 - Delete nodes/edges functionality
 - Drag nodes to reposition them
 - Undo/redo functionality
@@ -39,6 +42,7 @@ Add a button to automatically reorganize nodes for better visualization.
 - Circuit state is managed in `components/CircuitCanvas.tsx` using React hooks
 - Types defined in `types/circuit.ts`
 - Resistance values support: numbers (including negative/zero), variables (strings), and 'Infinity'
+- Layout algorithm uses: spring forces for edges, repulsion for nodes, damping for stability, centering force
 
 ## To Run
 ```bash
