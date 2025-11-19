@@ -356,6 +356,172 @@ export default function CircuitCanvas() {
     input.click();
   };
 
+  const generateSVG = (): string => {
+    // Calculate bounds
+    const padding = 50;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    circuit.nodes.forEach((node) => {
+      minX = Math.min(minX, node.x);
+      minY = Math.min(minY, node.y);
+      maxX = Math.max(maxX, node.x);
+      maxY = Math.max(maxY, node.y);
+    });
+
+    // Handle empty circuit
+    if (circuit.nodes.length === 0) {
+      minX = minY = 0;
+      maxX = maxY = 100;
+    }
+
+    const width = maxX - minX + padding * 2;
+    const height = maxY - minY + padding * 2;
+
+    // Build SVG string
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`;
+
+    // Background
+    svg += `<rect width="${width}" height="${height}" fill="white"/>`;
+
+    // Edges
+    circuit.edges.forEach((edge) => {
+      const nodeA = getNodeById(edge.nodeA);
+      const nodeB = getNodeById(edge.nodeB);
+      if (!nodeA || !nodeB) return;
+
+      const x1 = nodeA.x - minX + padding;
+      const y1 = nodeA.y - minY + padding;
+      const x2 = nodeB.x - minX + padding;
+      const y2 = nodeB.y - minY + padding;
+
+      // Find all edges between these two nodes (in either direction)
+      const parallelEdges = circuit.edges.filter((e) =>
+        (e.nodeA === edge.nodeA && e.nodeB === edge.nodeB) ||
+        (e.nodeA === edge.nodeB && e.nodeB === edge.nodeA)
+      );
+      const edgeIndex = parallelEdges.findIndex((e) => e.id === edge.id);
+      const totalParallelEdges = parallelEdges.length;
+
+      let pathD: string;
+      let midX: number;
+      let midY: number;
+
+      if (totalParallelEdges === 1) {
+        // Single edge - draw straight line
+        pathD = `M ${x1} ${y1} L ${x2} ${y2}`;
+        midX = (x1 + x2) / 2;
+        midY = (y1 + y2) / 2;
+      } else {
+        // Multiple edges - draw curves
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const perpX = -dy / length;
+        const perpY = dx / length;
+        const maxOffset = 40;
+        const offsetStep = maxOffset / Math.max(1, Math.floor(totalParallelEdges / 2));
+
+        let offset: number;
+        if (totalParallelEdges === 2) {
+          offset = edgeIndex === 0 ? -offsetStep : offsetStep;
+        } else {
+          const midIndex = Math.floor(totalParallelEdges / 2);
+          offset = (edgeIndex - midIndex) * offsetStep;
+        }
+
+        const controlX = (x1 + x2) / 2 + perpX * offset;
+        const controlY = (y1 + y2) / 2 + perpY * offset;
+        pathD = `M ${x1} ${y1} Q ${controlX} ${controlY} ${x2} ${y2}`;
+        midX = 0.25 * x1 + 0.5 * controlX + 0.25 * x2;
+        midY = 0.25 * y1 + 0.5 * controlY + 0.25 * y2;
+      }
+
+      const current = edgeCurrents.get(edge.id);
+      const hasNonZeroCurrent = current && !(current.isNumeric() && Math.abs(current.toNumber()) < 1e-10);
+
+      // Edge path
+      svg += `<path d="${pathD}" stroke="${hasNonZeroCurrent && showCurrents ? '#DC2626' : '#4B5563'}" stroke-width="${hasNonZeroCurrent && showCurrents ? '3' : '2'}" fill="none"/>`;
+
+      // Resistance label
+      const resistanceText = typeof edge.resistance === "number" ? `${edge.resistance}Ω` : edge.resistance;
+      svg += `<text x="${midX}" y="${midY - 10}" fill="#1F2937" font-size="12" text-anchor="middle" font-family="Arial, sans-serif">${resistanceText}</text>`;
+
+      // Current label
+      if (showCurrents && current) {
+        svg += `<text x="${midX}" y="${midY + 20}" fill="#DC2626" font-size="11" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif">I = ${current.toDisplayString("A")}</text>`;
+      }
+    });
+
+    // Nodes
+    circuit.nodes.forEach((node) => {
+      const x = node.x - minX + padding;
+      const y = node.y - minY + padding;
+
+      // Node circle
+      svg += `<circle cx="${x}" cy="${y}" r="16" fill="#3B82F6"/>`;
+
+      // Node label
+      svg += `<text x="${x}" y="${y + 5}" fill="white" font-size="12" font-weight="bold" text-anchor="middle" font-family="Arial, sans-serif">${node.label}</text>`;
+    });
+
+    svg += '</svg>';
+    return svg;
+  };
+
+  const handleExportSVG = () => {
+    const svgData = generateSVG();
+    const blob = new Blob([svgData], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `circuit-${new Date().toISOString().slice(0, 10)}.svg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPNG = () => {
+    const svgData = generateSVG();
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const img = new Image();
+    const blob = new Blob([svgData], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+
+    img.onload = () => {
+      // Set canvas size to match image
+      canvas.width = img.width;
+      canvas.height = img.height;
+
+      // Draw white background
+      ctx.fillStyle = "white";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw image
+      ctx.drawImage(img, 0, 0);
+
+      // Convert to PNG and download
+      canvas.toBlob((pngBlob) => {
+        if (!pngBlob) return;
+        const pngUrl = URL.createObjectURL(pngBlob);
+        const link = document.createElement("a");
+        link.href = pngUrl;
+        link.download = `circuit-${new Date().toISOString().slice(0, 10)}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(pngUrl);
+      });
+
+      URL.revokeObjectURL(url);
+    };
+
+    img.src = url;
+  };
+
   return (
     <div className="flex flex-col gap-4">
       {/* Toolbar */}
@@ -468,6 +634,23 @@ export default function CircuitCanvas() {
           >
             📂 Load
           </button>
+          <div className="border-l-2 border-gray-300 mx-1"></div>
+          <button
+            onClick={handleExportSVG}
+            disabled={circuit.nodes.length === 0}
+            className="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            title="Export circuit as SVG image"
+          >
+            🖼️ Export SVG
+          </button>
+          <button
+            onClick={handleExportPNG}
+            disabled={circuit.nodes.length === 0}
+            className="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            title="Export circuit as PNG image"
+          >
+            📸 Export PNG
+          </button>
         </div>
         {mode === "add-edge" && selectedNodes.length === 1 && (
           <p className="mt-2 text-sm text-gray-600">
@@ -512,8 +695,59 @@ export default function CircuitCanvas() {
             const nodeB = getNodeById(edge.nodeB);
             if (!nodeA || !nodeB) return null;
 
-            const midX = (nodeA.x + nodeB.x) / 2;
-            const midY = (nodeA.y + nodeB.y) / 2;
+            // Find all edges between these two nodes (in either direction)
+            const parallelEdges = circuit.edges.filter((e) =>
+              (e.nodeA === edge.nodeA && e.nodeB === edge.nodeB) ||
+              (e.nodeA === edge.nodeB && e.nodeB === edge.nodeA)
+            );
+            const edgeIndex = parallelEdges.findIndex((e) => e.id === edge.id);
+            const totalParallelEdges = parallelEdges.length;
+
+            // Calculate curve offset for parallel edges
+            let pathD: string;
+            let midX: number;
+            let midY: number;
+
+            if (totalParallelEdges === 1) {
+              // Single edge - draw straight line
+              pathD = `M ${nodeA.x} ${nodeA.y} L ${nodeB.x} ${nodeB.y}`;
+              midX = (nodeA.x + nodeB.x) / 2;
+              midY = (nodeA.y + nodeB.y) / 2;
+            } else {
+              // Multiple edges - draw curves
+              // Calculate perpendicular offset
+              const dx = nodeB.x - nodeA.x;
+              const dy = nodeB.y - nodeA.y;
+              const length = Math.sqrt(dx * dx + dy * dy);
+
+              // Perpendicular vector (normalized)
+              const perpX = -dy / length;
+              const perpY = dx / length;
+
+              // Offset amount based on edge index
+              const maxOffset = 40; // Maximum curve offset
+              const offsetStep = maxOffset / Math.max(1, Math.floor(totalParallelEdges / 2));
+
+              // Calculate offset for this edge
+              let offset: number;
+              if (totalParallelEdges === 2) {
+                offset = edgeIndex === 0 ? -offsetStep : offsetStep;
+              } else {
+                const midIndex = Math.floor(totalParallelEdges / 2);
+                offset = (edgeIndex - midIndex) * offsetStep;
+              }
+
+              // Calculate control point for quadratic curve
+              const controlX = (nodeA.x + nodeB.x) / 2 + perpX * offset;
+              const controlY = (nodeA.y + nodeB.y) / 2 + perpY * offset;
+
+              // Create quadratic bezier path
+              pathD = `M ${nodeA.x} ${nodeA.y} Q ${controlX} ${controlY} ${nodeB.x} ${nodeB.y}`;
+
+              // Calculate midpoint on curve for labels (point at t=0.5 on quadratic bezier)
+              midX = 0.25 * nodeA.x + 0.5 * controlX + 0.25 * nodeB.x;
+              midY = 0.25 * nodeA.y + 0.5 * controlY + 0.25 * nodeB.y;
+            }
 
             const current = edgeCurrents.get(edge.id);
             const hasNonZeroCurrent = current && !(current.isNumeric() && Math.abs(current.toNumber()) < 1e-10);
@@ -521,25 +755,21 @@ export default function CircuitCanvas() {
 
             return (
               <g key={edge.id}>
-                {/* Invisible thick line for easier clicking */}
-                <line
-                  x1={nodeA.x}
-                  y1={nodeA.y}
-                  x2={nodeB.x}
-                  y2={nodeB.y}
+                {/* Invisible thick path for easier clicking */}
+                <path
+                  d={pathD}
                   stroke="transparent"
                   strokeWidth="20"
+                  fill="none"
                   className={(mode === "delete" || mode === "select") ? "pointer-events-auto cursor-pointer" : "pointer-events-none"}
                   onClick={(e) => handleEdgeClick(edge.id, e)}
                 />
-                {/* Visible line */}
-                <line
-                  x1={nodeA.x}
-                  y1={nodeA.y}
-                  x2={nodeB.x}
-                  y2={nodeB.y}
+                {/* Visible path */}
+                <path
+                  d={pathD}
                   stroke={isSelected ? "#10B981" : (hasNonZeroCurrent && showCurrents ? "#DC2626" : "#4B5563")}
                   strokeWidth={isSelected ? "4" : (hasNonZeroCurrent && showCurrents ? "3" : "2")}
+                  fill="none"
                   className="pointer-events-none"
                   strokeDasharray={isSelected ? "5,5" : "none"}
                 />
