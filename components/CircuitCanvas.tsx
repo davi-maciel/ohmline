@@ -18,16 +18,71 @@ export default function CircuitCanvas() {
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
 
+  // Undo/Redo state
+  const [history, setHistory] = useState<Circuit[]>([{ nodes: [], edges: [] }]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const isUndoingOrRedoing = useRef(false);
+
   // Calculate currents whenever circuit changes
   const edgeCurrents = useMemo(() => {
     return calculateCurrents(circuit);
   }, [circuit]);
 
+  // Update history when circuit changes
+  useEffect(() => {
+    if (isUndoingOrRedoing.current) {
+      isUndoingOrRedoing.current = false;
+      return;
+    }
+
+    // Add current circuit to history
+    setHistory((prev) => {
+      const newHistory = prev.slice(0, historyIndex + 1);
+      // Deep clone circuit to avoid reference issues
+      newHistory.push(JSON.parse(JSON.stringify(circuit)));
+      // Limit history to 50 states to prevent memory issues
+      if (newHistory.length > 50) {
+        newHistory.shift();
+        setHistoryIndex((idx) => Math.max(0, idx - 1));
+        return newHistory;
+      }
+      setHistoryIndex(newHistory.length - 1);
+      return newHistory;
+    });
+  }, [circuit]);
+
+  // Undo/Redo functions
+  const undo = useCallback(() => {
+    if (historyIndex > 0) {
+      isUndoingOrRedoing.current = true;
+      setHistoryIndex((prev) => prev - 1);
+      setCircuit(JSON.parse(JSON.stringify(history[historyIndex - 1])));
+    }
+  }, [historyIndex, history]);
+
+  const redo = useCallback(() => {
+    if (historyIndex < history.length - 1) {
+      isUndoingOrRedoing.current = true;
+      setHistoryIndex((prev) => prev + 1);
+      setCircuit(JSON.parse(JSON.stringify(history[historyIndex + 1])));
+    }
+  }, [historyIndex, history]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Undo (Ctrl/Cmd+Z)
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+      // Redo (Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y)
+      else if (((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "z") || ((e.ctrlKey || e.metaKey) && e.key === "y")) {
+        e.preventDefault();
+        redo();
+      }
       // Delete key - delete selected items
-      if (e.key === "Delete" || e.key === "Backspace") {
+      else if (e.key === "Delete" || e.key === "Backspace") {
         if (selectedNodes.length > 0 || selectedEdges.length > 0) {
           e.preventDefault();
 
@@ -53,7 +108,7 @@ export default function CircuitCanvas() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedNodes, selectedEdges]);
+  }, [selectedNodes, selectedEdges, undo, redo]);
 
   const addNode = useCallback((x: number, y: number) => {
     const newNode: Node = {
@@ -259,7 +314,24 @@ export default function CircuitCanvas() {
     <div className="flex flex-col gap-4">
       {/* Toolbar */}
       <div className="bg-white p-4 rounded-lg shadow">
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={undo}
+            disabled={historyIndex === 0}
+            className="px-4 py-2 rounded bg-gray-500 text-white hover:bg-gray-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            title="Undo (Ctrl/Cmd+Z)"
+          >
+            ↶ Undo
+          </button>
+          <button
+            onClick={redo}
+            disabled={historyIndex >= history.length - 1}
+            className="px-4 py-2 rounded bg-gray-500 text-white hover:bg-gray-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            title="Redo (Ctrl/Cmd+Shift+Z)"
+          >
+            ↷ Redo
+          </button>
+          <div className="border-l-2 border-gray-300 mx-1"></div>
           <button
             onClick={() => setMode("select")}
             className={`px-4 py-2 rounded ${
@@ -357,7 +429,7 @@ export default function CircuitCanvas() {
         )}
         {mode === "select" && selectedNodes.length === 0 && selectedEdges.length === 0 && (
           <p className="mt-2 text-sm text-gray-600">
-            Click to select items. Hold Ctrl/Cmd to select multiple. Press Delete to remove selected items.
+            Click to select items. Hold Ctrl/Cmd to select multiple. Press Delete to remove selected items. Use Ctrl/Cmd+Z to undo, Ctrl/Cmd+Shift+Z to redo.
           </p>
         )}
       </div>
