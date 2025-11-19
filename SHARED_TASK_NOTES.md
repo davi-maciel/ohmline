@@ -19,11 +19,16 @@
     - Escape: Clear selections
     - Ctrl/Cmd+Z: Undo
     - Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y): Redo
-  - **Undo/Redo functionality (COMPLETED)**:
+  - Undo/Redo functionality:
     - History stack with 50-state limit
     - Undo/Redo buttons in toolbar
     - Keyboard shortcuts (Ctrl/Cmd+Z for undo, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y for redo)
     - Works with all circuit operations (add/delete/move nodes, add/delete edges, edit properties)
+  - **Save/Load functionality (NEW)**:
+    - Save circuit to JSON file (filename: circuit-YYYY-MM-DD.json)
+    - Load circuit from JSON file
+    - Validates loaded circuit structure
+    - Clears all selections when loading
 - Equivalent Resistance Calculator
 - Node Auto-Layout (force-directed graph)
 - Electric Potential & Current Calculation
@@ -31,7 +36,6 @@
 ## Next Priorities
 
 ### 1. Additional Features (Medium Priority)
-- Save/load circuit designs (JSON export/import)
 - Export circuit as image (PNG/SVG)
 
 ### 2. Enhanced UX (Low Priority)

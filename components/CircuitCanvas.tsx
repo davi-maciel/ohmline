@@ -310,6 +310,52 @@ export default function CircuitCanvas() {
 
   const getNodeById = (id: string) => circuit.nodes.find((n) => n.id === id);
 
+  const handleSaveCircuit = () => {
+    const dataStr = JSON.stringify(circuit, null, 2);
+    const dataBlob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `circuit-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleLoadCircuit = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json";
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const loadedCircuit = JSON.parse(event.target?.result as string);
+          // Validate the loaded circuit has the expected structure
+          if (loadedCircuit && Array.isArray(loadedCircuit.nodes) && Array.isArray(loadedCircuit.edges)) {
+            setCircuit(loadedCircuit);
+            // Clear selections
+            setSelectedNodes([]);
+            setSelectedEdges([]);
+            setCalculationNodes([]);
+            setEquivalentResistance(null);
+          } else {
+            alert("Invalid circuit file format");
+          }
+        } catch (error) {
+          alert("Error loading circuit file");
+          console.error(error);
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
   return (
     <div className="flex flex-col gap-4">
       {/* Toolbar */}
@@ -405,6 +451,22 @@ export default function CircuitCanvas() {
             }`}
           >
             {showCurrents ? "Hide" : "Show"} Currents
+          </button>
+          <div className="border-l-2 border-gray-300 mx-1"></div>
+          <button
+            onClick={handleSaveCircuit}
+            disabled={circuit.nodes.length === 0 && circuit.edges.length === 0}
+            className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            title="Save circuit to JSON file"
+          >
+            💾 Save
+          </button>
+          <button
+            onClick={handleLoadCircuit}
+            className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
+            title="Load circuit from JSON file"
+          >
+            📂 Load
           </button>
         </div>
         {mode === "add-edge" && selectedNodes.length === 1 && (
