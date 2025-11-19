@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import type { Node, Edge, Circuit } from "@/types/circuit";
 import { calculateEquivalentResistance, SymbolicResistance } from "@/lib/circuitCalculator";
 import { applyForceDirectedLayout } from "@/lib/graphLayout";
+import { calculateCurrents, SymbolicValue } from "@/lib/currentCalculator";
 
 export default function CircuitCanvas() {
   const [circuit, setCircuit] = useState<Circuit>({ nodes: [], edges: [] });
@@ -11,7 +12,13 @@ export default function CircuitCanvas() {
   const [mode, setMode] = useState<"add-node" | "add-edge" | "select" | "calculate-resistance">("select");
   const [calculationNodes, setCalculationNodes] = useState<string[]>([]);
   const [equivalentResistance, setEquivalentResistance] = useState<SymbolicResistance | null>(null);
+  const [showCurrents, setShowCurrents] = useState<boolean>(true);
   const canvasRef = useRef<HTMLDivElement>(null);
+
+  // Calculate currents whenever circuit changes
+  const edgeCurrents = useMemo(() => {
+    return calculateCurrents(circuit);
+  }, [circuit]);
 
   const addNode = useCallback((x: number, y: number) => {
     const newNode: Node = {
@@ -82,6 +89,15 @@ export default function CircuitCanvas() {
       ...prev,
       edges: prev.edges.map((edge) =>
         edge.id === edgeId ? { ...edge, resistance: value || 1 } : edge
+      ),
+    }));
+  };
+
+  const updateNodePotential = (nodeId: string, value: string) => {
+    setCircuit((prev) => ({
+      ...prev,
+      nodes: prev.nodes.map((node) =>
+        node.id === nodeId ? { ...node, potential: value || undefined } : node
       ),
     }));
   };
@@ -162,6 +178,16 @@ export default function CircuitCanvas() {
           >
             Auto-Layout
           </button>
+          <button
+            onClick={() => setShowCurrents(!showCurrents)}
+            className={`px-4 py-2 rounded ${
+              showCurrents
+                ? "bg-red-500 text-white"
+                : "bg-gray-200 text-gray-700"
+            }`}
+          >
+            {showCurrents ? "Hide" : "Show"} Currents
+          </button>
         </div>
         {mode === "add-edge" && selectedNodes.length === 1 && (
           <p className="mt-2 text-sm text-gray-600">
@@ -191,6 +217,9 @@ export default function CircuitCanvas() {
             const midX = (nodeA.x + nodeB.x) / 2;
             const midY = (nodeA.y + nodeB.y) / 2;
 
+            const current = edgeCurrents.get(edge.id);
+            const hasNonZeroCurrent = current && !(current.isNumeric() && Math.abs(current.toNumber()) < 1e-10);
+
             return (
               <g key={edge.id}>
                 <line
@@ -198,9 +227,10 @@ export default function CircuitCanvas() {
                   y1={nodeA.y}
                   x2={nodeB.x}
                   y2={nodeB.y}
-                  stroke="#4B5563"
-                  strokeWidth="2"
+                  stroke={hasNonZeroCurrent && showCurrents ? "#DC2626" : "#4B5563"}
+                  strokeWidth={hasNonZeroCurrent && showCurrents ? "3" : "2"}
                 />
+                {/* Resistance label */}
                 <text
                   x={midX}
                   y={midY - 10}
@@ -213,6 +243,20 @@ export default function CircuitCanvas() {
                     ? `${edge.resistance}Ω`
                     : edge.resistance}
                 </text>
+                {/* Current label */}
+                {showCurrents && current && (
+                  <text
+                    x={midX}
+                    y={midY + 20}
+                    fill="#DC2626"
+                    fontSize="11"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                    className="pointer-events-auto"
+                  >
+                    I = {current.toDisplayString("A")}
+                  </text>
+                )}
               </g>
             );
           })}
@@ -241,6 +285,33 @@ export default function CircuitCanvas() {
           );
         })}
       </div>
+
+      {/* Node properties panel */}
+      {circuit.nodes.length > 0 && (
+        <div className="bg-white p-4 rounded-lg shadow">
+          <h3 className="text-lg font-semibold mb-2">Node Properties</h3>
+          <div className="space-y-2">
+            {circuit.nodes.map((node) => (
+              <div key={node.id} className="flex items-center gap-2">
+                <span className="text-sm text-gray-600 w-12">
+                  {node.label}:
+                </span>
+                <span className="text-sm text-gray-500">V =</span>
+                <input
+                  type="text"
+                  value={node.potential ?? ""}
+                  onChange={(e) => updateNodePotential(node.id, e.target.value)}
+                  className="px-2 py-1 border rounded w-32"
+                  placeholder="Potential"
+                />
+                <span className="text-sm text-gray-500">
+                  (e.g., 5, V, 0)
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Edge properties panel */}
       {circuit.edges.length > 0 && (
