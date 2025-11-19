@@ -44,13 +44,14 @@
 - Node Auto-Layout (force-directed graph)
 - Electric Potential & Current Calculation
 
-## Recent Fixes (2025-11-19 - Iteration 4)
-- Fixed edge duplication bug where adding an edge would sometimes create two edges
-  - Simplified `addEdge` function (removed complex guards)
-  - Added deduplication check in `handleNodeClick` when adding edges
-  - Uses 100ms time window to prevent event bubbling duplicates
-  - Allows intentional parallel edges (users can add multiple edges between same nodes)
-- Parallel edge rendering confirmed working:
+## Recent Fixes (2025-11-19 - Iteration 5)
+- Fixed edge duplication bug where adding an edge would create two edges (R_eq was half the expected value)
+  - Root cause: Event bubbling was causing `handleNodeClick` to fire multiple times
+  - Solution: Added early return check for duplicate node clicks within 500ms window
+  - Added `e.preventDefault()` to `handleNodeClick` to prevent default browser behavior
+  - Moved duplicate detection logic outside the `setSelectedNodes` callback for better reliability
+  - Users can still intentionally add parallel edges by waiting >500ms between clicks
+- Parallel edge rendering confirmed working correctly:
   - Multiple edges between same nodes rendered with curved paths
   - Edges automatically spread out to avoid overlap
   - Calculates correct equivalent resistance for parallel edges
@@ -69,8 +70,9 @@
 - Keyboard shortcuts implemented via useEffect with window event listener
 - Edge deduplication:
   - `lastEdgeAddRef` tracks the last edge added with timestamp
-  - 100ms time window prevents event bubbling from creating duplicates
-  - Located in `handleNodeClick` function in add-edge mode
+  - 500ms time window prevents event bubbling from creating duplicates
+  - Early return check in `handleNodeClick` before processing the click
+  - Located in `handleNodeClick` function in add-edge mode (line ~236)
 
 ## To Run
 ```bash

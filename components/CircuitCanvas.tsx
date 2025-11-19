@@ -17,7 +17,7 @@ export default function CircuitCanvas() {
   const [draggedNode, setDraggedNode] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
-  const lastEdgeAddRef = useRef<{ nodeA: string; nodeB: string; timestamp: number } | null>(null);
+  const lastEdgeAddRef = useRef<{ nodeA: string; nodeB: string; timestamp: number } | null>(null); // Track last edge to prevent duplicates from event bubbling
 
   // Undo/Redo state
   const [history, setHistory] = useState<Circuit[]>([{ nodes: [], edges: [] }]);
@@ -213,6 +213,7 @@ export default function CircuitCanvas() {
 
   const handleNodeClick = (nodeId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
 
     if (mode === "select") {
       // Multi-select with Ctrl/Cmd key
@@ -232,27 +233,23 @@ export default function CircuitCanvas() {
     } else if (mode === "delete") {
       deleteNode(nodeId);
     } else if (mode === "add-edge") {
+      // Check if we just added this exact edge within the last 500ms
+      // This prevents double-clicks / event bubbling from adding duplicate edges
+      const now = Date.now();
+      if (lastEdgeAddRef.current) {
+        const { nodeA: lastA, nodeB: lastB, timestamp } = lastEdgeAddRef.current;
+        // Check if this is the same node that was just clicked
+        if ((lastA === nodeId || lastB === nodeId) && now - timestamp < 500) {
+          // Skip this duplicate click (likely from event bubbling)
+          return;
+        }
+      }
+
       setSelectedNodes((prev) => {
         const newSelection = [...prev, nodeId];
         if (newSelection.length === 2) {
           const nodeA = newSelection[0];
           const nodeB = newSelection[1];
-
-          // Check if we just added this exact edge within the last 100ms
-          // This prevents double-clicks / event bubbling from adding duplicate edges
-          // but still allows users to intentionally add parallel edges
-          const now = Date.now();
-          if (lastEdgeAddRef.current) {
-            const { nodeA: lastA, nodeB: lastB, timestamp } = lastEdgeAddRef.current;
-            const sameEdge =
-              (lastA === nodeA && lastB === nodeB) ||
-              (lastA === nodeB && lastB === nodeA);
-
-            if (sameEdge && now - timestamp < 100) {
-              // Skip this duplicate edge addition (likely from event bubbling)
-              return [];
-            }
-          }
 
           lastEdgeAddRef.current = { nodeA, nodeB, timestamp: now };
           addEdge(nodeA, nodeB);
