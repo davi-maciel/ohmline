@@ -8,11 +8,11 @@
   - Edit resistance values (supports numbers, variables like 'r', and 'Infinity')
   - Visual rendering of nodes and edges with labels
   - UI modes: select, add-node, add-edge, calculate-resistance, delete
-  - **Delete nodes/edges functionality (COMPLETED)**:
-    - Delete mode in toolbar (red button)
-    - Click on nodes to delete them (also removes connected edges)
-    - Click on edges to delete them (invisible thick line for easier clicking)
-    - Helper text when in delete mode
+  - **Delete nodes/edges functionality (COMPLETED)**
+  - **Drag-to-reposition nodes (COMPLETED)**:
+    - In select mode, click and drag nodes to reposition
+    - Edges automatically update to follow nodes
+    - Visual feedback with cursor changes (move/grabbing)
 - **Equivalent Resistance Calculator (COMPLETED)**
 - **Node Auto-Layout (COMPLETED)**
 - **Electric Potential & Current Calculation (COMPLETED)**
@@ -20,7 +20,6 @@
 ## Next Priorities
 
 ### 1. Enhanced Circuit Editing (High Priority)
-- Drag nodes to reposition them manually
 - Select multiple nodes/edges
 - Keyboard shortcuts (e.g., Delete key to delete selected items)
 
