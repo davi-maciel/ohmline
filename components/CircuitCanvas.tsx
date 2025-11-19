@@ -17,6 +17,7 @@ export default function CircuitCanvas() {
   const [draggedNode, setDraggedNode] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
+  const addingEdgeRef = useRef<boolean>(false);
 
   // Undo/Redo state
   const [history, setHistory] = useState<Circuit[]>([{ nodes: [], edges: [] }]);
@@ -124,8 +125,14 @@ export default function CircuitCanvas() {
   }, [circuit.nodes.length]);
 
   const addEdge = useCallback((nodeAId: string, nodeBId: string) => {
+    // Prevent duplicate calls (debounce to avoid race conditions)
+    if (addingEdgeRef.current) {
+      return;
+    }
+
+    addingEdgeRef.current = true;
     const newEdge: Edge = {
-      id: `edge-${Date.now()}`,
+      id: `edge-${Date.now()}-${Math.random()}`,
       nodeA: nodeAId,
       nodeB: nodeBId,
       resistance: 1, // Default resistance
@@ -134,6 +141,11 @@ export default function CircuitCanvas() {
       ...prev,
       edges: [...prev.edges, newEdge],
     }));
+
+    // Reset the flag after a short delay to allow for the next edge addition
+    setTimeout(() => {
+      addingEdgeRef.current = false;
+    }, 100);
   }, []);
 
   const deleteNode = useCallback((nodeId: string) => {

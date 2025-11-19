@@ -39,9 +39,15 @@
     - Multiple edges between same nodes are rendered with curved paths
     - Edges automatically spread out to avoid overlap
     - Works in both canvas and export views
+    - Debounced edge addition to prevent accidental duplicates
 - Equivalent Resistance Calculator
 - Node Auto-Layout (force-directed graph)
 - Electric Potential & Current Calculation
+
+## Recent Fixes (2025-11-19)
+- Fixed edge duplication issue where adding one edge would create two (causing R_eq to be half)
+- Added debouncing to `addEdge` function with 100ms timeout to prevent race conditions
+- Verified parallel edge rendering works correctly with curved paths
 
 ## Next Priorities
 
@@ -55,6 +61,7 @@
 - Resistance/voltage values: numbers, variables (strings), 'Infinity'
 - Multi-select: `selectedNodes` and `selectedEdges` state arrays
 - Keyboard shortcuts implemented via useEffect with window event listener
+- Edge addition uses a ref-based debounce guard (`addingEdgeRef`) to prevent duplicate edges
 
 ## To Run
 ```bash
