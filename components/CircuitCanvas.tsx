@@ -17,7 +17,6 @@ export default function CircuitCanvas() {
   const [draggedNode, setDraggedNode] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
-  const addingEdgeRef = useRef<boolean>(false);
   const lastEdgeAddRef = useRef<{ nodeA: string; nodeB: string; timestamp: number } | null>(null);
 
   // Undo/Redo state
@@ -126,29 +125,6 @@ export default function CircuitCanvas() {
   }, [circuit.nodes.length]);
 
   const addEdge = useCallback((nodeAId: string, nodeBId: string) => {
-    // Prevent duplicate calls (debounce to avoid race conditions)
-    if (addingEdgeRef.current) {
-      return;
-    }
-
-    // Check if we're trying to add the same edge within a short time window (300ms)
-    const now = Date.now();
-    if (lastEdgeAddRef.current) {
-      const { nodeA, nodeB, timestamp } = lastEdgeAddRef.current;
-      const timeDiff = now - timestamp;
-      const sameEdge =
-        (nodeA === nodeAId && nodeB === nodeBId) ||
-        (nodeA === nodeBId && nodeB === nodeAId);
-
-      if (sameEdge && timeDiff < 300) {
-        console.log('Duplicate edge prevented:', { nodeAId, nodeBId, timeDiff });
-        return;
-      }
-    }
-
-    addingEdgeRef.current = true;
-    lastEdgeAddRef.current = { nodeA: nodeAId, nodeB: nodeBId, timestamp: now };
-
     const newEdge: Edge = {
       id: `edge-${Date.now()}-${Math.random()}`,
       nodeA: nodeAId,
@@ -160,11 +136,6 @@ export default function CircuitCanvas() {
       ...prev,
       edges: [...prev.edges, newEdge],
     }));
-
-    // Reset the flag after a short delay to allow for the next edge addition
-    setTimeout(() => {
-      addingEdgeRef.current = false;
-    }, 100);
   }, []);
 
   const deleteNode = useCallback((nodeId: string) => {
@@ -264,7 +235,27 @@ export default function CircuitCanvas() {
       setSelectedNodes((prev) => {
         const newSelection = [...prev, nodeId];
         if (newSelection.length === 2) {
-          addEdge(newSelection[0], newSelection[1]);
+          const nodeA = newSelection[0];
+          const nodeB = newSelection[1];
+
+          // Check if we just added this exact edge within the last 100ms
+          // This prevents double-clicks / event bubbling from adding duplicate edges
+          // but still allows users to intentionally add parallel edges
+          const now = Date.now();
+          if (lastEdgeAddRef.current) {
+            const { nodeA: lastA, nodeB: lastB, timestamp } = lastEdgeAddRef.current;
+            const sameEdge =
+              (lastA === nodeA && lastB === nodeB) ||
+              (lastA === nodeB && lastB === nodeA);
+
+            if (sameEdge && now - timestamp < 100) {
+              // Skip this duplicate edge addition (likely from event bubbling)
+              return [];
+            }
+          }
+
+          lastEdgeAddRef.current = { nodeA, nodeB, timestamp: now };
+          addEdge(nodeA, nodeB);
           return [];
         }
         return newSelection;
