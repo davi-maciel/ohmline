@@ -10,13 +10,20 @@
   - UI modes: select, add-node, add-edge, calculate-resistance, delete
   - Delete nodes/edges functionality
   - Drag-to-reposition nodes (in select mode)
-  - **Multi-select nodes/edges (COMPLETED)**:
+  - Multi-select nodes/edges:
     - Click items in select mode to select
     - Ctrl/Cmd+click to multi-select
     - Selected items highlighted (nodes: green ring, edges: green dashed)
-  - **Keyboard shortcuts (COMPLETED)**:
+  - Keyboard shortcuts:
     - Delete/Backspace: Delete selected items
     - Escape: Clear selections
+    - Ctrl/Cmd+Z: Undo
+    - Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y): Redo
+  - **Undo/Redo functionality (COMPLETED)**:
+    - History stack with 50-state limit
+    - Undo/Redo buttons in toolbar
+    - Keyboard shortcuts (Ctrl/Cmd+Z for undo, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y for redo)
+    - Works with all circuit operations (add/delete/move nodes, add/delete edges, edit properties)
 - Equivalent Resistance Calculator
 - Node Auto-Layout (force-directed graph)
 - Electric Potential & Current Calculation
@@ -24,7 +31,6 @@
 ## Next Priorities
 
 ### 1. Additional Features (Medium Priority)
-- Undo/redo functionality
 - Save/load circuit designs (JSON export/import)
 - Export circuit as image (PNG/SVG)
 
