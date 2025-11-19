@@ -2,11 +2,14 @@
 
 import { useState, useRef, useCallback } from "react";
 import type { Node, Edge, Circuit } from "@/types/circuit";
+import { calculateEquivalentResistance, SymbolicResistance } from "@/lib/circuitCalculator";
 
 export default function CircuitCanvas() {
   const [circuit, setCircuit] = useState<Circuit>({ nodes: [], edges: [] });
   const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
-  const [mode, setMode] = useState<"add-node" | "add-edge" | "select">("select");
+  const [mode, setMode] = useState<"add-node" | "add-edge" | "select" | "calculate-resistance">("select");
+  const [calculationNodes, setCalculationNodes] = useState<string[]>([]);
+  const [equivalentResistance, setEquivalentResistance] = useState<SymbolicResistance | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const addNode = useCallback((x: number, y: number) => {
@@ -56,6 +59,17 @@ export default function CircuitCanvas() {
         if (newSelection.length === 2) {
           addEdge(newSelection[0], newSelection[1]);
           return [];
+        }
+        return newSelection;
+      });
+    } else if (mode === "calculate-resistance") {
+      setCalculationNodes((prev) => {
+        const newSelection = [...prev, nodeId];
+        if (newSelection.length === 2) {
+          // Calculate equivalent resistance
+          const result = calculateEquivalentResistance(circuit, newSelection[0], newSelection[1]);
+          setEquivalentResistance(result);
+          return newSelection; // Keep the selection to show which nodes were used
         }
         return newSelection;
       });
@@ -111,10 +125,29 @@ export default function CircuitCanvas() {
           >
             Add Edge
           </button>
+          <button
+            onClick={() => {
+              setMode("calculate-resistance");
+              setCalculationNodes([]);
+              setEquivalentResistance(null);
+            }}
+            className={`px-4 py-2 rounded ${
+              mode === "calculate-resistance"
+                ? "bg-purple-500 text-white"
+                : "bg-gray-200 text-gray-700"
+            }`}
+          >
+            Calculate R<sub>eq</sub>
+          </button>
         </div>
         {mode === "add-edge" && selectedNodes.length === 1 && (
           <p className="mt-2 text-sm text-gray-600">
             Select the second node to create an edge
+          </p>
+        )}
+        {mode === "calculate-resistance" && calculationNodes.length === 1 && (
+          <p className="mt-2 text-sm text-gray-600">
+            Select the second node to calculate equivalent resistance
           </p>
         )}
       </div>
@@ -163,20 +196,27 @@ export default function CircuitCanvas() {
         </svg>
 
         {/* Render nodes */}
-        {circuit.nodes.map((node) => (
-          <div
-            key={node.id}
-            onClick={(e) => handleNodeClick(node.id, e)}
-            className={`absolute w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold cursor-pointer transform -translate-x-1/2 -translate-y-1/2 ${
-              selectedNodes.includes(node.id)
-                ? "bg-green-500 ring-4 ring-green-300"
-                : "bg-blue-500 hover:bg-blue-600"
-            }`}
-            style={{ left: node.x, top: node.y }}
-          >
-            {node.label}
-          </div>
-        ))}
+        {circuit.nodes.map((node) => {
+          const isSelected = selectedNodes.includes(node.id);
+          const isCalculationNode = calculationNodes.includes(node.id);
+
+          return (
+            <div
+              key={node.id}
+              onClick={(e) => handleNodeClick(node.id, e)}
+              className={`absolute w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold cursor-pointer transform -translate-x-1/2 -translate-y-1/2 ${
+                isSelected
+                  ? "bg-green-500 ring-4 ring-green-300"
+                  : isCalculationNode
+                  ? "bg-purple-500 ring-4 ring-purple-300"
+                  : "bg-blue-500 hover:bg-blue-600"
+              }`}
+              style={{ left: node.x, top: node.y }}
+            >
+              {node.label}
+            </div>
+          );
+        })}
       </div>
 
       {/* Edge properties panel */}
@@ -205,6 +245,41 @@ export default function CircuitCanvas() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Equivalent resistance display */}
+      {equivalentResistance !== null && calculationNodes.length === 2 && (
+        <div className="bg-purple-50 p-4 rounded-lg shadow border-2 border-purple-200">
+          <h3 className="text-lg font-semibold mb-2 text-purple-900">
+            Equivalent Resistance
+          </h3>
+          <div className="space-y-2">
+            <p className="text-sm text-gray-600">
+              Between nodes:{" "}
+              <span className="font-semibold">
+                {getNodeById(calculationNodes[0])?.label}
+              </span>
+              {" and "}
+              <span className="font-semibold">
+                {getNodeById(calculationNodes[1])?.label}
+              </span>
+            </p>
+            <div className="bg-white p-3 rounded border border-purple-300">
+              <p className="text-2xl font-bold text-purple-700">
+                R<sub>eq</sub> = {equivalentResistance.toDisplayString()}
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setCalculationNodes([]);
+                setEquivalentResistance(null);
+              }}
+              className="mt-2 px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 text-sm"
+            >
+              Clear Calculation
+            </button>
           </div>
         </div>
       )}
