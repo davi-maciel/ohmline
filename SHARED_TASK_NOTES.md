@@ -24,21 +24,28 @@
     - Undo/Redo buttons in toolbar
     - Keyboard shortcuts (Ctrl/Cmd+Z for undo, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y for redo)
     - Works with all circuit operations (add/delete/move nodes, add/delete edges, edit properties)
-  - **Save/Load functionality (NEW)**:
+  - Save/Load functionality:
     - Save circuit to JSON file (filename: circuit-YYYY-MM-DD.json)
     - Load circuit from JSON file
     - Validates loaded circuit structure
     - Clears all selections when loading
+  - Export circuit as image:
+    - Export as SVG (vector format, scales without quality loss)
+    - Export as PNG (raster format)
+    - Exports include all nodes, edges, resistance values, and current labels
+    - Auto-calculates bounds with padding
+    - Disabled when circuit is empty
+  - Parallel edge rendering:
+    - Multiple edges between same nodes are rendered with curved paths
+    - Edges automatically spread out to avoid overlap
+    - Works in both canvas and export views
 - Equivalent Resistance Calculator
 - Node Auto-Layout (force-directed graph)
 - Electric Potential & Current Calculation
 
 ## Next Priorities
 
-### 1. Additional Features (Medium Priority)
-- Export circuit as image (PNG/SVG)
-
-### 2. Enhanced UX (Low Priority)
+### 1. Enhanced UX (Low Priority)
 - Box/lasso selection (drag to select multiple items)
 - Copy/paste circuits
 

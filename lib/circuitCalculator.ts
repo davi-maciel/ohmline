@@ -322,7 +322,10 @@ export function calculateEquivalentResistance(
       // If multiple edges between two nodes, they are in parallel
       let segmentResistance: SymbolicResistance | null = null;
 
-      for (const edge of edges) {
+      // Deduplicate edges by ID (since each edge is added twice in the graph - once for each direction)
+      const uniqueEdges = Array.from(new Map(edges.map(e => [e.id, e])).values());
+
+      for (const edge of uniqueEdges) {
         const edgeResistance = new SymbolicResistance(parseResistance(edge.resistance));
 
         if (segmentResistance === null) {
