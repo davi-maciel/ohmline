@@ -18,6 +18,7 @@ export default function CircuitCanvas() {
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
   const addingEdgeRef = useRef<boolean>(false);
+  const lastEdgeAddRef = useRef<{ nodeA: string; nodeB: string; timestamp: number } | null>(null);
 
   // Undo/Redo state
   const [history, setHistory] = useState<Circuit[]>([{ nodes: [], edges: [] }]);
@@ -130,13 +131,31 @@ export default function CircuitCanvas() {
       return;
     }
 
+    // Check if we're trying to add the same edge within a short time window (300ms)
+    const now = Date.now();
+    if (lastEdgeAddRef.current) {
+      const { nodeA, nodeB, timestamp } = lastEdgeAddRef.current;
+      const timeDiff = now - timestamp;
+      const sameEdge =
+        (nodeA === nodeAId && nodeB === nodeBId) ||
+        (nodeA === nodeBId && nodeB === nodeAId);
+
+      if (sameEdge && timeDiff < 300) {
+        console.log('Duplicate edge prevented:', { nodeAId, nodeBId, timeDiff });
+        return;
+      }
+    }
+
     addingEdgeRef.current = true;
+    lastEdgeAddRef.current = { nodeA: nodeAId, nodeB: nodeBId, timestamp: now };
+
     const newEdge: Edge = {
       id: `edge-${Date.now()}-${Math.random()}`,
       nodeA: nodeAId,
       nodeB: nodeBId,
       resistance: 1, // Default resistance
     };
+
     setCircuit((prev) => ({
       ...prev,
       edges: [...prev.edges, newEdge],
