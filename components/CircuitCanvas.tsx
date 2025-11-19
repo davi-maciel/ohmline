@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import type { Node, Edge, Circuit } from "@/types/circuit";
 import { calculateEquivalentResistance, SymbolicResistance } from "@/lib/circuitCalculator";
 import { applyForceDirectedLayout } from "@/lib/graphLayout";
@@ -9,6 +9,7 @@ import { calculateCurrents, SymbolicValue } from "@/lib/currentCalculator";
 export default function CircuitCanvas() {
   const [circuit, setCircuit] = useState<Circuit>({ nodes: [], edges: [] });
   const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
+  const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
   const [mode, setMode] = useState<"add-node" | "add-edge" | "select" | "calculate-resistance" | "delete">("select");
   const [calculationNodes, setCalculationNodes] = useState<string[]>([]);
   const [equivalentResistance, setEquivalentResistance] = useState<SymbolicResistance | null>(null);
@@ -21,6 +22,38 @@ export default function CircuitCanvas() {
   const edgeCurrents = useMemo(() => {
     return calculateCurrents(circuit);
   }, [circuit]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Delete key - delete selected items
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedNodes.length > 0 || selectedEdges.length > 0) {
+          e.preventDefault();
+
+          // Delete selected nodes and edges
+          setCircuit((prev) => ({
+            nodes: prev.nodes.filter((n) => !selectedNodes.includes(n.id)),
+            edges: prev.edges.filter((e) => !selectedEdges.includes(e.id) && !selectedNodes.includes(e.nodeA) && !selectedNodes.includes(e.nodeB)),
+          }));
+
+          // Clear selections
+          setSelectedNodes([]);
+          setSelectedEdges([]);
+        }
+      }
+      // Escape key - clear selections
+      else if (e.key === "Escape") {
+        setSelectedNodes([]);
+        setSelectedEdges([]);
+        setCalculationNodes([]);
+        setEquivalentResistance(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedNodes, selectedEdges]);
 
   const addNode = useCallback((x: number, y: number) => {
     const newNode: Node = {
@@ -72,6 +105,10 @@ export default function CircuitCanvas() {
 
     if (mode === "add-node") {
       addNode(x, y);
+    } else if (mode === "select") {
+      // Deselect all when clicking on canvas background
+      setSelectedNodes([]);
+      setSelectedEdges([]);
     }
   };
 
@@ -120,7 +157,22 @@ export default function CircuitCanvas() {
   const handleNodeClick = (nodeId: string, e: React.MouseEvent) => {
     e.stopPropagation();
 
-    if (mode === "delete") {
+    if (mode === "select") {
+      // Multi-select with Ctrl/Cmd key
+      if (e.ctrlKey || e.metaKey) {
+        setSelectedNodes((prev) =>
+          prev.includes(nodeId)
+            ? prev.filter((id) => id !== nodeId)
+            : [...prev, nodeId]
+        );
+      } else {
+        // Single select
+        setSelectedNodes((prev) =>
+          prev.includes(nodeId) && prev.length === 1 ? [] : [nodeId]
+        );
+        setSelectedEdges([]);
+      }
+    } else if (mode === "delete") {
       deleteNode(nodeId);
     } else if (mode === "add-edge") {
       setSelectedNodes((prev) => {
@@ -142,6 +194,29 @@ export default function CircuitCanvas() {
         }
         return newSelection;
       });
+    }
+  };
+
+  const handleEdgeClick = (edgeId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    if (mode === "select") {
+      // Multi-select with Ctrl/Cmd key
+      if (e.ctrlKey || e.metaKey) {
+        setSelectedEdges((prev) =>
+          prev.includes(edgeId)
+            ? prev.filter((id) => id !== edgeId)
+            : [...prev, edgeId]
+        );
+      } else {
+        // Single select
+        setSelectedEdges((prev) =>
+          prev.includes(edgeId) && prev.length === 1 ? [] : [edgeId]
+        );
+        setSelectedNodes([]);
+      }
+    } else if (mode === "delete") {
+      deleteEdge(edgeId);
     }
   };
 
@@ -275,6 +350,16 @@ export default function CircuitCanvas() {
             Select the second node to calculate equivalent resistance
           </p>
         )}
+        {mode === "select" && (selectedNodes.length > 0 || selectedEdges.length > 0) && (
+          <p className="mt-2 text-sm text-blue-600">
+            Selected: {selectedNodes.length} node{selectedNodes.length !== 1 ? 's' : ''}, {selectedEdges.length} edge{selectedEdges.length !== 1 ? 's' : ''} | Press Delete to remove or Escape to deselect
+          </p>
+        )}
+        {mode === "select" && selectedNodes.length === 0 && selectedEdges.length === 0 && (
+          <p className="mt-2 text-sm text-gray-600">
+            Click to select items. Hold Ctrl/Cmd to select multiple. Press Delete to remove selected items.
+          </p>
+        )}
       </div>
 
       {/* Canvas */}
@@ -298,6 +383,7 @@ export default function CircuitCanvas() {
 
             const current = edgeCurrents.get(edge.id);
             const hasNonZeroCurrent = current && !(current.isNumeric() && Math.abs(current.toNumber()) < 1e-10);
+            const isSelected = selectedEdges.includes(edge.id);
 
             return (
               <g key={edge.id}>
@@ -309,13 +395,8 @@ export default function CircuitCanvas() {
                   y2={nodeB.y}
                   stroke="transparent"
                   strokeWidth="20"
-                  className={mode === "delete" ? "pointer-events-auto cursor-pointer" : "pointer-events-none"}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (mode === "delete") {
-                      deleteEdge(edge.id);
-                    }
-                  }}
+                  className={(mode === "delete" || mode === "select") ? "pointer-events-auto cursor-pointer" : "pointer-events-none"}
+                  onClick={(e) => handleEdgeClick(edge.id, e)}
                 />
                 {/* Visible line */}
                 <line
@@ -323,9 +404,10 @@ export default function CircuitCanvas() {
                   y1={nodeA.y}
                   x2={nodeB.x}
                   y2={nodeB.y}
-                  stroke={hasNonZeroCurrent && showCurrents ? "#DC2626" : "#4B5563"}
-                  strokeWidth={hasNonZeroCurrent && showCurrents ? "3" : "2"}
+                  stroke={isSelected ? "#10B981" : (hasNonZeroCurrent && showCurrents ? "#DC2626" : "#4B5563")}
+                  strokeWidth={isSelected ? "4" : (hasNonZeroCurrent && showCurrents ? "3" : "2")}
                   className="pointer-events-none"
+                  strokeDasharray={isSelected ? "5,5" : "none"}
                 />
                 {/* Resistance label */}
                 <text
@@ -334,13 +416,8 @@ export default function CircuitCanvas() {
                   fill="#1F2937"
                   fontSize="12"
                   textAnchor="middle"
-                  className={mode === "delete" ? "pointer-events-auto cursor-pointer" : "pointer-events-auto"}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (mode === "delete") {
-                      deleteEdge(edge.id);
-                    }
-                  }}
+                  className={(mode === "delete" || mode === "select") ? "pointer-events-auto cursor-pointer" : "pointer-events-auto"}
+                  onClick={(e) => handleEdgeClick(edge.id, e)}
                 >
                   {typeof edge.resistance === "number"
                     ? `${edge.resistance}Ω`
