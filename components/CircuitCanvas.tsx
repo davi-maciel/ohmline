@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import type { Node, Edge, Circuit } from "@/types/circuit";
 import { calculateEquivalentResistance, SymbolicResistance } from "@/lib/circuitCalculator";
+import { applyForceDirectedLayout } from "@/lib/graphLayout";
 
 export default function CircuitCanvas() {
   const [circuit, setCircuit] = useState<Circuit>({ nodes: [], edges: [] });
@@ -85,6 +86,21 @@ export default function CircuitCanvas() {
     }));
   };
 
+  const handleAutoLayout = () => {
+    if (!canvasRef.current || circuit.nodes.length === 0) return;
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const layoutedNodes = applyForceDirectedLayout(circuit, {
+      width: rect.width,
+      height: rect.height,
+    });
+
+    setCircuit((prev) => ({
+      ...prev,
+      nodes: layoutedNodes,
+    }));
+  };
+
   const getNodeById = (id: string) => circuit.nodes.find((n) => n.id === id);
 
   return (
@@ -138,6 +154,13 @@ export default function CircuitCanvas() {
             }`}
           >
             Calculate R<sub>eq</sub>
+          </button>
+          <button
+            onClick={handleAutoLayout}
+            disabled={circuit.nodes.length === 0}
+            className="px-4 py-2 rounded bg-green-500 text-white hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+          >
+            Auto-Layout
           </button>
         </div>
         {mode === "add-edge" && selectedNodes.length === 1 && (
