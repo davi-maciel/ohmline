@@ -13,6 +13,8 @@ export default function CircuitCanvas() {
   const [calculationNodes, setCalculationNodes] = useState<string[]>([]);
   const [equivalentResistance, setEquivalentResistance] = useState<SymbolicResistance | null>(null);
   const [showCurrents, setShowCurrents] = useState<boolean>(true);
+  const [draggedNode, setDraggedNode] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
 
   // Calculate currents whenever circuit changes
@@ -70,6 +72,48 @@ export default function CircuitCanvas() {
 
     if (mode === "add-node") {
       addNode(x, y);
+    }
+  };
+
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!draggedNode || !canvasRef.current) return;
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const newX = mouseX - dragOffset.x;
+    const newY = mouseY - dragOffset.y;
+
+    setCircuit((prev) => ({
+      ...prev,
+      nodes: prev.nodes.map((node) =>
+        node.id === draggedNode ? { ...node, x: newX, y: newY } : node
+      ),
+    }));
+  };
+
+  const handleCanvasMouseUp = () => {
+    setDraggedNode(null);
+  };
+
+  const handleNodeMouseDown = (nodeId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    if (mode === "select") {
+      // Start dragging
+      const node = getNodeById(nodeId);
+      if (!node || !canvasRef.current) return;
+
+      const rect = canvasRef.current.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      setDraggedNode(nodeId);
+      setDragOffset({
+        x: mouseX - node.x,
+        y: mouseY - node.y,
+      });
     }
   };
 
@@ -237,6 +281,9 @@ export default function CircuitCanvas() {
       <div
         ref={canvasRef}
         onClick={handleCanvasClick}
+        onMouseMove={handleCanvasMouseMove}
+        onMouseUp={handleCanvasMouseUp}
+        onMouseLeave={handleCanvasMouseUp}
         className="relative bg-white rounded-lg shadow h-[600px] border-2 border-gray-200 cursor-crosshair"
       >
         {/* Render edges */}
@@ -322,17 +369,25 @@ export default function CircuitCanvas() {
         {circuit.nodes.map((node) => {
           const isSelected = selectedNodes.includes(node.id);
           const isCalculationNode = calculationNodes.includes(node.id);
+          const isDragging = draggedNode === node.id;
 
           return (
             <div
               key={node.id}
+              onMouseDown={(e) => handleNodeMouseDown(node.id, e)}
               onClick={(e) => handleNodeClick(node.id, e)}
-              className={`absolute w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold cursor-pointer transform -translate-x-1/2 -translate-y-1/2 ${
+              className={`absolute w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold transform -translate-x-1/2 -translate-y-1/2 ${
                 isSelected
                   ? "bg-green-500 ring-4 ring-green-300"
                   : isCalculationNode
                   ? "bg-purple-500 ring-4 ring-purple-300"
                   : "bg-blue-500 hover:bg-blue-600"
+              } ${
+                mode === "select" && !isDragging
+                  ? "cursor-move"
+                  : isDragging
+                  ? "cursor-grabbing"
+                  : "cursor-pointer"
               }`}
               style={{ left: node.x, top: node.y }}
             >
