@@ -255,18 +255,17 @@ export default function CircuitCanvas() {
         }
       }
 
-      setSelectedNodes((prev) => {
-        const newSelection = [...prev, nodeId];
-        if (newSelection.length === 2) {
-          const nodeA = newSelection[0];
-          const nodeB = newSelection[1];
-
-          lastEdgeAddRef.current = { nodeA, nodeB, timestamp: now };
-          addEdge(nodeA, nodeB);
-          return [];
-        }
-        return newSelection;
-      });
+      if (selectedNodes.length === 0) {
+        setSelectedNodes([nodeId]);
+      } else if (selectedNodes.length === 1) {
+        const nodeA = selectedNodes[0];
+        const nodeB = nodeId;
+        lastEdgeAddRef.current = {
+          nodeA, nodeB, timestamp: now,
+        };
+        addEdge(nodeA, nodeB);
+        setSelectedNodes([]);
+      }
     } else if (mode === "calculate-resistance") {
       setCalculationNodes((prev) => {
         const newSelection = [...prev, nodeId];
