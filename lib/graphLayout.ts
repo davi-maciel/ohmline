@@ -170,5 +170,5 @@ export function applyForceDirectedLayout(
   }
 
   // Return nodes without velocity properties
-  return nodes.map(({ id, x, y, label }) => ({ id, x, y, label }));
+  return nodes.map(({ vx, vy, ...node }) => node);
 }

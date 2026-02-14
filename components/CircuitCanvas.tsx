@@ -2,9 +2,16 @@
 
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import type { Node, Edge, Circuit } from "@/types/circuit";
-import { calculateEquivalentResistance, SymbolicResistance } from "@/lib/circuitCalculator";
-import { applyForceDirectedLayout } from "@/lib/graphLayout";
-import { calculateCurrents, SymbolicValue } from "@/lib/currentCalculator";
+import {
+  calculateEquivalentResistance,
+  RationalExpr,
+} from "@/lib/circuitCalculator";
+import {
+  applyForceDirectedLayout,
+} from "@/lib/graphLayout";
+import {
+  calculateCurrents,
+} from "@/lib/currentCalculator";
 
 export default function CircuitCanvas() {
   const [circuit, setCircuit] = useState<Circuit>({ nodes: [], edges: [] });
@@ -12,7 +19,7 @@ export default function CircuitCanvas() {
   const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
   const [mode, setMode] = useState<"add-node" | "add-edge" | "select" | "calculate-resistance" | "delete">("select");
   const [calculationNodes, setCalculationNodes] = useState<string[]>([]);
-  const [equivalentResistance, setEquivalentResistance] = useState<SymbolicResistance | null>(null);
+  const [equivalentResistance, setEquivalentResistance] = useState<RationalExpr | null>(null);
   const [showCurrents, setShowCurrents] = useState<boolean>(true);
   const [draggedNode, setDraggedNode] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -23,6 +30,8 @@ export default function CircuitCanvas() {
   const [history, setHistory] = useState<Circuit[]>([{ nodes: [], edges: [] }]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const isUndoingOrRedoing = useRef(false);
+  const historyIndexRef = useRef(historyIndex);
+  historyIndexRef.current = historyIndex;
 
   // Calculate currents whenever circuit changes
   const edgeCurrents = useMemo(() => {
@@ -38,13 +47,14 @@ export default function CircuitCanvas() {
 
     // Add current circuit to history
     setHistory((prev) => {
-      const newHistory = prev.slice(0, historyIndex + 1);
+      const idx = historyIndexRef.current;
+      const newHistory = prev.slice(0, idx + 1);
       // Deep clone circuit to avoid reference issues
       newHistory.push(JSON.parse(JSON.stringify(circuit)));
       // Limit history to 50 states to prevent memory issues
       if (newHistory.length > 50) {
         newHistory.shift();
-        setHistoryIndex((idx) => Math.max(0, idx - 1));
+        setHistoryIndex((i) => Math.max(0, i - 1));
         return newHistory;
       }
       setHistoryIndex(newHistory.length - 1);
@@ -298,16 +308,37 @@ export default function CircuitCanvas() {
     setCircuit((prev) => ({
       ...prev,
       edges: prev.edges.map((edge) =>
-        edge.id === edgeId ? { ...edge, resistance: value || 1 } : edge
+        edge.id === edgeId
+          ? { ...edge, resistance: value !== '' ? value : 1 }
+          : edge
       ),
     }));
   };
 
-  const updateNodePotential = (nodeId: string, value: string) => {
+  const updateNodePotential = (
+    nodeId: string,
+    value: string
+  ) => {
     setCircuit((prev) => ({
       ...prev,
       nodes: prev.nodes.map((node) =>
-        node.id === nodeId ? { ...node, potential: value || undefined } : node
+        node.id === nodeId
+          ? { ...node, potential: value || undefined }
+          : node
+      ),
+    }));
+  };
+
+  const updateNodeLabel = (
+    nodeId: string,
+    value: string
+  ) => {
+    setCircuit((prev) => ({
+      ...prev,
+      nodes: prev.nodes.map((node) =>
+        node.id === nodeId
+          ? { ...node, label: value || node.label }
+          : node
       ),
     }));
   };
@@ -864,9 +895,20 @@ export default function CircuitCanvas() {
           <div className="space-y-2">
             {circuit.nodes.map((node) => (
               <div key={node.id} className="flex items-center gap-2">
-                <span className="text-sm text-gray-600 w-12">
-                  {node.label}:
-                </span>
+                <input
+                  type="text"
+                  value={node.label}
+                  onChange={(e) =>
+                    updateNodeLabel(
+                      node.id,
+                      e.target.value
+                    )
+                  }
+                  className={
+                    "px-2 py-1 border rounded"
+                    + " w-16 text-sm font-semibold"
+                  }
+                />
                 <span className="text-sm text-gray-500">V =</span>
                 <input
                   type="text"
@@ -933,7 +975,7 @@ export default function CircuitCanvas() {
             </p>
             <div className="bg-white p-3 rounded border border-purple-300">
               <p className="text-2xl font-bold text-purple-700">
-                R<sub>eq</sub> = {equivalentResistance.toDisplayString()}
+                R<sub>eq</sub> = {equivalentResistance.toDisplayString("\u03A9")}
               </p>
             </div>
             <button

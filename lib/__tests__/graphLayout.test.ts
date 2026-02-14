@@ -1,54 +1,71 @@
-import { applyForceDirectedLayout } from "../graphLayout";
+import {
+  applyForceDirectedLayout,
+} from "../graphLayout";
 import type { Circuit } from "@/types/circuit";
 
-const canvasWidth = 800;
-const canvasHeight = 600;
+const W = 800;
+const H = 600;
 
-// Test: Single node should be centered
-function testSingleNode() {
-  const circuit: Circuit = {
-    nodes: [{ id: "n1", x: 100, y: 100, label: "N1" }],
-    edges: [],
-  };
+let passed = 0;
+let failed = 0;
 
-  const result = applyForceDirectedLayout(circuit, {
-    width: canvasWidth,
-    height: canvasHeight,
-  });
-
-  console.log("Test Single Node (centered):");
-  console.log(`  Expected: x=${canvasWidth / 2}, y=${canvasHeight / 2}`);
-  console.log(`  Got: x=${result[0].x}, y=${result[0].y}`);
-  console.log(`  ✓ Node centered: ${result[0].x === canvasWidth / 2 && result[0].y === canvasHeight / 2}`);
+function assert(
+  condition: boolean,
+  msg: string
+): void {
+  if (condition) {
+    passed++;
+  } else {
+    failed++;
+    console.error(`FAIL: ${msg}`);
+  }
 }
 
-// Test: Two nodes should spread apart
-function testTwoNodes() {
+// --- Single node centered ---
+
+{
   const circuit: Circuit = {
     nodes: [
-      { id: "n1", x: 400, y: 300, label: "N1" },
-      { id: "n2", x: 400, y: 300, label: "N2" },
+      { id: "n1", x: 100, y: 100, label: "N1" },
     ],
     edges: [],
   };
-
-  const result = applyForceDirectedLayout(circuit, {
-    width: canvasWidth,
-    height: canvasHeight,
-  });
-
-  const distance = Math.sqrt(
-    Math.pow(result[1].x - result[0].x, 2) +
-      Math.pow(result[1].y - result[0].y, 2)
+  const r = applyForceDirectedLayout(
+    circuit, { width: W, height: H }
   );
-
-  console.log("\nTest Two Nodes (should spread apart):");
-  console.log(`  Distance between nodes: ${distance.toFixed(2)}`);
-  console.log(`  ✓ Nodes spread apart: ${distance > 0}`);
+  assert(
+    r[0].x === W / 2 && r[0].y === H / 2,
+    "single node centered"
+  );
 }
 
-// Test: Series circuit layout
-function testSeriesCircuit() {
+// --- Two nearby nodes spread apart ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      {
+        id: "n1", x: 399, y: 300, label: "N1",
+      },
+      {
+        id: "n2", x: 401, y: 300, label: "N2",
+      },
+    ],
+    edges: [],
+  };
+  const r = applyForceDirectedLayout(
+    circuit, { width: W, height: H }
+  );
+  const dist = Math.sqrt(
+    (r[1].x - r[0].x) ** 2
+    + (r[1].y - r[0].y) ** 2
+  );
+  assert(dist > 10, "two nodes spread apart");
+}
+
+// --- Nodes stay within bounds ---
+
+{
   const circuit: Circuit = {
     nodes: [
       { id: "n1", x: 100, y: 100, label: "N1" },
@@ -56,63 +73,78 @@ function testSeriesCircuit() {
       { id: "n3", x: 120, y: 120, label: "N3" },
     ],
     edges: [
-      { id: "e1", nodeA: "n1", nodeB: "n2", resistance: 1 },
-      { id: "e2", nodeA: "n2", nodeB: "n3", resistance: 1 },
+      {
+        id: "e1", nodeA: "n1",
+        nodeB: "n2", resistance: 1,
+      },
+      {
+        id: "e2", nodeA: "n2",
+        nodeB: "n3", resistance: 1,
+      },
     ],
   };
-
-  const result = applyForceDirectedLayout(circuit, {
-    width: canvasWidth,
-    height: canvasHeight,
-  });
-
-  const allInBounds = result.every(
-    (node) =>
-      node.x >= 0 &&
-      node.x <= canvasWidth &&
-      node.y >= 0 &&
-      node.y <= canvasHeight
+  const r = applyForceDirectedLayout(
+    circuit, { width: W, height: H }
   );
-
-  console.log("\nTest Series Circuit (n1 - n2 - n3):");
-  result.forEach((node) => {
-    console.log(`  ${node.label}: x=${node.x.toFixed(2)}, y=${node.y.toFixed(2)}`);
-  });
-  console.log(`  ✓ All nodes within bounds: ${allInBounds}`);
+  const allInBounds = r.every(
+    (n) =>
+      n.x >= 0 && n.x <= W
+      && n.y >= 0 && n.y <= H
+  );
+  assert(allInBounds, "nodes within bounds");
 }
 
-// Test: Parallel circuit layout
-function testParallelCircuit() {
+// --- Potentials preserved ---
+
+{
   const circuit: Circuit = {
     nodes: [
-      { id: "n1", x: 100, y: 300, label: "N1" },
-      { id: "n2", x: 400, y: 200, label: "N2" },
-      { id: "n3", x: 400, y: 400, label: "N3" },
-      { id: "n4", x: 700, y: 300, label: "N4" },
+      {
+        id: "n1", x: 100, y: 100,
+        label: "N1", potential: 10,
+      },
+      {
+        id: "n2", x: 200, y: 200,
+        label: "N2", potential: "V",
+      },
     ],
     edges: [
-      { id: "e1", nodeA: "n1", nodeB: "n2", resistance: 1 },
-      { id: "e2", nodeA: "n1", nodeB: "n3", resistance: 1 },
-      { id: "e3", nodeA: "n2", nodeB: "n4", resistance: 1 },
-      { id: "e4", nodeA: "n3", nodeB: "n4", resistance: 1 },
+      {
+        id: "e1", nodeA: "n1",
+        nodeB: "n2", resistance: 1,
+      },
     ],
   };
-
-  const result = applyForceDirectedLayout(circuit, {
-    width: canvasWidth,
-    height: canvasHeight,
-  });
-
-  console.log("\nTest Parallel Circuit:");
-  result.forEach((node) => {
-    console.log(`  ${node.label}: x=${node.x.toFixed(2)}, y=${node.y.toFixed(2)}`);
-  });
+  const r = applyForceDirectedLayout(
+    circuit, { width: W, height: H }
+  );
+  assert(
+    r[0].potential === 10,
+    "potential 10 preserved"
+  );
+  assert(
+    r[1].potential === "V",
+    "potential 'V' preserved"
+  );
 }
 
-// Run all tests
-console.log("=== Force-Directed Layout Tests ===\n");
-testSingleNode();
-testTwoNodes();
-testSeriesCircuit();
-testParallelCircuit();
-console.log("\n=== All tests completed ===");
+// --- Empty circuit ---
+
+{
+  const circuit: Circuit = {
+    nodes: [],
+    edges: [],
+  };
+  const r = applyForceDirectedLayout(
+    circuit, { width: W, height: H }
+  );
+  assert(r.length === 0, "empty circuit");
+}
+
+// --- summary ---
+
+console.log(
+  `\ngraphLayout tests: `
+  + `${passed} passed, ${failed} failed`
+);
+if (failed > 0) process.exit(1);

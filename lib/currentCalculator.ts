@@ -1,280 +1,307 @@
-import type { Circuit, Edge } from "@/types/circuit";
-import { parseResistance, SymbolicResistance } from "./circuitCalculator";
+import type { Circuit } from "@/types/circuit";
+import {
+  RationalExpr,
+  solveLinearSystem,
+} from "@/lib/symbolic";
 
 /**
- * Represents a symbolic current or voltage value
- * Similar to SymbolicResistance but for electrical quantities
+ * Union-Find for merging nodes connected by
+ * zero-resistance edges.
  */
-export class SymbolicValue {
-  // Stores terms like { "V": 1, "constant": 5 } for "V+5"
-  private terms: Map<string, number>;
+class UnionFind {
+  private parent: Map<string, string>;
+  private rank: Map<string, number>;
 
-  constructor(value: number | string) {
-    this.terms = new Map();
+  constructor(ids: string[]) {
+    this.parent = new Map();
+    this.rank = new Map();
+    for (const id of ids) {
+      this.parent.set(id, id);
+      this.rank.set(id, 0);
+    }
+  }
 
-    if (typeof value === "number") {
-      if (value !== 0) {
-        this.terms.set("constant", value);
-      }
+  find(x: string): string {
+    let root = x;
+    while (this.parent.get(root) !== root) {
+      root = this.parent.get(root)!;
+    }
+    let cur = x;
+    while (cur !== root) {
+      const next = this.parent.get(cur)!;
+      this.parent.set(cur, root);
+      cur = next;
+    }
+    return root;
+  }
+
+  union(a: string, b: string): void {
+    const ra = this.find(a);
+    const rb = this.find(b);
+    if (ra === rb) return;
+    const rankA = this.rank.get(ra)!;
+    const rankB = this.rank.get(rb)!;
+    if (rankA < rankB) {
+      this.parent.set(ra, rb);
+    } else if (rankA > rankB) {
+      this.parent.set(rb, ra);
     } else {
-      this.parseExpression(value);
+      this.parent.set(rb, ra);
+      this.rank.set(ra, rankA + 1);
     }
   }
 
-  private parseExpression(expr: string): void {
-    expr = expr.replace(/\s/g, "");
-
-    // Split by + and - while preserving the sign
-    const parts = expr.match(/[+-]?[^+-]+/g) || [];
-
-    for (const part of parts) {
-      if (!part) continue;
-
-      // Try to parse as pure number
-      const num = parseFloat(part);
-      if (!isNaN(num) && part === num.toString()) {
-        this.addTerm("constant", num);
-        continue;
-      }
-
-      // Parse coefficient and variable (e.g., "2V", "-V", "V")
-      const match = part.match(/^([+-]?\d*\.?\d*)([a-zA-Z_]\w*)$/);
-      if (match) {
-        const coef =
-          match[1] === "" || match[1] === "+"
-            ? 1
-            : match[1] === "-"
-            ? -1
-            : parseFloat(match[1]);
-        const variable = match[2];
-        this.addTerm(variable, coef);
-      } else {
-        this.addTerm(part, 1);
-      }
-    }
-  }
-
-  private addTerm(variable: string, coefficient: number): void {
-    const current = this.terms.get(variable) || 0;
-    const newValue = current + coefficient;
-    if (Math.abs(newValue) < 1e-10) {
-      this.terms.delete(variable);
-    } else {
-      this.terms.set(variable, newValue);
-    }
-  }
-
-  add(other: SymbolicValue): SymbolicValue {
-    const result = new SymbolicValue(0);
-
-    for (const [variable, coef] of this.terms) {
-      result.addTerm(variable, coef);
-    }
-
-    for (const [variable, coef] of other.terms) {
-      result.addTerm(variable, coef);
-    }
-
-    return result;
-  }
-
-  subtract(other: SymbolicValue): SymbolicValue {
-    const result = new SymbolicValue(0);
-
-    for (const [variable, coef] of this.terms) {
-      result.addTerm(variable, coef);
-    }
-
-    for (const [variable, coef] of other.terms) {
-      result.addTerm(variable, -coef);
-    }
-
-    return result;
-  }
-
-  multiply(scalar: number): SymbolicValue {
-    const result = new SymbolicValue(0);
-
-    for (const [variable, coef] of this.terms) {
-      result.addTerm(variable, coef * scalar);
-    }
-
-    return result;
-  }
-
-  divide(divisor: SymbolicValue): SymbolicValue {
-    // Only handle division by numeric constants
-    if (divisor.isNumeric()) {
-      const num = divisor.toNumber();
-      if (num === 0) {
-        return new SymbolicValue(Infinity);
-      }
-      return this.multiply(1 / num);
-    }
-
-    // For symbolic division, create expression
-    const thisStr = this.toString();
-    const divisorStr = divisor.toString();
-    return new SymbolicValue(`(${thisStr})/(${divisorStr})`);
-  }
-
-  isNumeric(): boolean {
-    return (
-      this.terms.size === 0 ||
-      (this.terms.size === 1 && this.terms.has("constant"))
-    );
-  }
-
-  toNumber(): number {
-    if (this.terms.size === 0) return 0;
-    if (this.isNumeric()) {
-      return this.terms.get("constant") || 0;
-    }
-    throw new Error("Cannot convert symbolic expression to number");
-  }
-
-  toString(): string {
-    if (this.terms.size === 0) return "0";
-
-    const parts: string[] = [];
-    let constant = 0;
-
-    for (const [variable, coef] of this.terms) {
-      if (variable === "constant") {
-        constant = coef;
-        continue;
-      }
-
-      if (coef === 1) {
-        parts.push(variable);
-      } else if (coef === -1) {
-        parts.push(`-${variable}`);
-      } else {
-        parts.push(`${coef}${variable}`);
-      }
-    }
-
-    if (constant !== 0) {
-      parts.push(constant.toString());
-    }
-
-    if (parts.length === 0) return constant.toString();
-
-    return parts.join("+").replace(/\+-/g, "-");
-  }
-
-  toDisplayString(unit: string = ""): string {
-    const str = this.toString();
-    if (this.isNumeric()) {
-      const num = this.toNumber();
-      if (num === Infinity) return "∞";
-      if (num === 0) return `0${unit}`;
-      // Format to reasonable precision
-      const formatted = Math.abs(num) < 1e-10 ? "0" : num.toFixed(4).replace(/\.?0+$/, "");
-      return `${formatted}${unit}`;
-    }
-    return `${str}${unit}`;
+  connected(a: string, b: string): boolean {
+    return this.find(a) === this.find(b);
   }
 }
 
 /**
- * Represents current flowing through an edge
- */
-export interface EdgeCurrent {
-  edgeId: string;
-  current: SymbolicValue;
-}
-
-/**
- * Calculate currents in the circuit using Kirchhoff's laws
+ * Calculate currents in the circuit using KCL
+ * nodal analysis.
  *
- * Uses the Node Voltage Method (Nodal Analysis):
- * 1. Choose a reference node (ground)
- * 2. Write KCL equations for each non-reference node
- * 3. Solve the system of equations for node voltages
- * 4. Calculate currents using Ohm's law: I = (V1 - V2) / R
+ * Algorithm:
+ * 1. Separate nodes into boundary (known
+ *    potential) and interior (unknown).
+ * 2. If <2 boundary nodes, return empty map.
+ * 3. Union-Find for zero-R edges.
+ * 4. Build conductance matrix for interior nodes.
+ * 5. Solve for unknown potentials.
+ * 6. Compute edge currents: I = (V_A - V_B) / R.
  */
-export function calculateCurrents(circuit: Circuit): Map<string, SymbolicValue> {
-  const edgeCurrents = new Map<string, SymbolicValue>();
+export function calculateCurrents(
+  circuit: Circuit
+): Map<string, RationalExpr> {
+  const result = new Map<string, RationalExpr>();
 
-  // If no edges, no currents
   if (circuit.edges.length === 0) {
-    return edgeCurrents;
+    return result;
   }
 
-  // Build node potential map (mix of known and unknown)
-  const nodePotentials = new Map<string, SymbolicValue>();
-
+  // Parse node potentials; separate boundary
+  // (known) from interior (unknown)
+  const knownPotentials = new Map<
+    string, RationalExpr
+  >();
   for (const node of circuit.nodes) {
-    if (node.potential !== undefined && node.potential !== "") {
-      nodePotentials.set(node.id, new SymbolicValue(node.potential));
+    if (
+      node.potential !== undefined
+      && node.potential !== ""
+    ) {
+      knownPotentials.set(
+        node.id,
+        RationalExpr.parse(node.potential)
+      );
     }
   }
 
-  // Calculate current for each edge using Ohm's law: I = (V1 - V2) / R
+  // Need at least 2 boundary nodes
+  if (knownPotentials.size < 2) {
+    return result;
+  }
+
+  // Union-Find for zero-resistance edges
+  const allNodeIds = circuit.nodes.map(
+    (n) => n.id
+  );
+  const uf = new UnionFind(allNodeIds);
+
   for (const edge of circuit.edges) {
-    const nodeAId = edge.nodeA;
-    const nodeBId = edge.nodeB;
+    const r = RationalExpr.parse(edge.resistance);
+    if (r.isZero()) {
+      uf.union(edge.nodeA, edge.nodeB);
+    }
+  }
 
-    const potentialA = nodePotentials.get(nodeAId);
-    const potentialB = nodePotentials.get(nodeBId);
+  // Check for short circuits: two merged nodes
+  // with different known potentials
+  const shortCircuitGroups = new Set<string>();
+  const groupPotential = new Map<
+    string, RationalExpr
+  >();
+  for (const [nodeId, pot] of knownPotentials) {
+    const rep = uf.find(nodeId);
+    const existing = groupPotential.get(rep);
+    if (existing) {
+      if (!existing.equals(pot)) {
+        shortCircuitGroups.add(rep);
+      }
+    } else {
+      groupPotential.set(rep, pot);
+    }
+  }
 
-    // If both potentials are unknown, current is unknown
-    if (!potentialA && !potentialB) {
-      edgeCurrents.set(edge.id, new SymbolicValue("I"));
+  // For short-circuit edges, set INFINITY current
+  if (shortCircuitGroups.size > 0) {
+    for (const edge of circuit.edges) {
+      const r = RationalExpr.parse(
+        edge.resistance
+      );
+      if (r.isZero()) {
+        const rep = uf.find(edge.nodeA);
+        if (shortCircuitGroups.has(rep)) {
+          result.set(
+            edge.id,
+            RationalExpr.INFINITY
+          );
+        }
+      }
+    }
+  }
+
+  // Build representative node sets
+  const repSet = new Set<string>();
+  for (const id of allNodeIds) {
+    repSet.add(uf.find(id));
+  }
+
+  // Determine which reps are boundary (known
+  // potential) and which are interior
+  const repKnown = new Map<
+    string, RationalExpr
+  >();
+  for (const [nodeId, pot] of knownPotentials) {
+    const rep = uf.find(nodeId);
+    if (!shortCircuitGroups.has(rep)) {
+      repKnown.set(rep, pot);
+    }
+  }
+
+  const interiorReps: string[] = [];
+  for (const rep of repSet) {
+    if (
+      !repKnown.has(rep)
+      && !shortCircuitGroups.has(rep)
+    ) {
+      interiorReps.push(rep);
+    }
+  }
+
+  const m = interiorReps.length;
+
+  // Map interior rep -> matrix index
+  const indexMap = new Map<string, number>();
+  for (let i = 0; i < m; i++) {
+    indexMap.set(interiorReps[i], i);
+  }
+
+  // Build conductance matrix Y (MxM) and RHS b
+  const Y: RationalExpr[][] = [];
+  const b: RationalExpr[] = [];
+  for (let i = 0; i < m; i++) {
+    Y.push([]);
+    for (let j = 0; j < m; j++) {
+      Y[i].push(RationalExpr.ZERO);
+    }
+    b.push(RationalExpr.ZERO);
+  }
+
+  for (const edge of circuit.edges) {
+    const r = RationalExpr.parse(edge.resistance);
+    if (r.isZero() || r.isInfinity()) continue;
+
+    const G = r.reciprocal();
+    const rA = uf.find(edge.nodeA);
+    const rB = uf.find(edge.nodeB);
+    if (rA === rB) continue;
+
+    const iA = indexMap.get(rA);
+    const iB = indexMap.get(rB);
+    const potA = repKnown.get(rA);
+    const potB = repKnown.get(rB);
+
+    if (
+      iA !== undefined
+      && iB !== undefined
+    ) {
+      // Both interior
+      Y[iA][iA] = Y[iA][iA].add(G);
+      Y[iB][iB] = Y[iB][iB].add(G);
+      Y[iA][iB] = Y[iA][iB].subtract(G);
+      Y[iB][iA] = Y[iB][iA].subtract(G);
+    } else if (
+      iA !== undefined
+      && potB !== undefined
+    ) {
+      // A interior, B boundary
+      Y[iA][iA] = Y[iA][iA].add(G);
+      b[iA] = b[iA].add(G.multiply(potB));
+    } else if (
+      iB !== undefined
+      && potA !== undefined
+    ) {
+      // B interior, A boundary
+      Y[iB][iB] = Y[iB][iB].add(G);
+      b[iB] = b[iB].add(G.multiply(potA));
+    }
+    // Both boundary: no unknowns, skip
+  }
+
+  // Solve for interior potentials
+  let interiorPotentials: RationalExpr[] | null =
+    null;
+  if (m > 0) {
+    interiorPotentials = solveLinearSystem(Y, b);
+  }
+
+  // Build full potential map (rep -> potential)
+  const allPotentials = new Map<
+    string, RationalExpr
+  >();
+  for (const [rep, pot] of repKnown) {
+    allPotentials.set(rep, pot);
+  }
+  if (interiorPotentials) {
+    for (let i = 0; i < m; i++) {
+      allPotentials.set(
+        interiorReps[i],
+        interiorPotentials[i]
+      );
+    }
+  }
+
+  // Compute edge currents: I = (V_A - V_B) / R
+  for (const edge of circuit.edges) {
+    // Skip if already set (short circuit)
+    if (result.has(edge.id)) continue;
+
+    const r = RationalExpr.parse(edge.resistance);
+
+    if (r.isInfinity()) {
+      result.set(edge.id, RationalExpr.ZERO);
       continue;
     }
 
-    // If one potential is unknown, we can't calculate current yet
-    // (would need full nodal analysis with KCL)
-    if (!potentialA || !potentialB) {
-      edgeCurrents.set(edge.id, new SymbolicValue("I"));
+    const rA = uf.find(edge.nodeA);
+    const rB = uf.find(edge.nodeB);
+
+    const potA = allPotentials.get(rA);
+    const potB = allPotentials.get(rB);
+
+    if (!potA || !potB) {
+      // Cannot determine current
       continue;
     }
 
-    // Both potentials are known, calculate current
-    const resistance = parseResistance(edge.resistance);
-
-    // Handle special cases
-    if (resistance === Infinity) {
-      edgeCurrents.set(edge.id, new SymbolicValue(0));
-      continue;
-    }
-
-    if (typeof resistance === "number" && resistance === 0) {
-      // Zero resistance - infinite current if voltage difference exists
-      const voltageDiff = potentialA.subtract(potentialB);
-      if (voltageDiff.isNumeric() && voltageDiff.toNumber() === 0) {
-        edgeCurrents.set(edge.id, new SymbolicValue(0));
+    if (r.isZero()) {
+      // Zero resistance with same potential
+      const diff = potA.subtract(potB);
+      if (diff.isZero()) {
+        result.set(
+          edge.id, RationalExpr.ZERO
+        );
       } else {
-        edgeCurrents.set(edge.id, new SymbolicValue(Infinity));
+        result.set(
+          edge.id, RationalExpr.INFINITY
+        );
       }
       continue;
     }
 
     // I = (V_A - V_B) / R
-    const voltageDiff = potentialA.subtract(potentialB);
-    const resistanceValue = new SymbolicValue(resistance);
-    const current = voltageDiff.divide(resistanceValue);
-
-    edgeCurrents.set(edge.id, current);
+    const current = potA.subtract(potB).divide(r);
+    result.set(edge.id, current);
   }
 
-  return edgeCurrents;
-}
-
-/**
- * Get current direction (from nodeA to nodeB if positive, opposite if negative)
- */
-export function getCurrentDirection(
-  edge: Edge,
-  current: SymbolicValue
-): "A->B" | "B->A" | "none" {
-  if (current.isNumeric()) {
-    const value = current.toNumber();
-    if (Math.abs(value) < 1e-10) return "none";
-    return value > 0 ? "A->B" : "B->A";
-  }
-  // For symbolic, assume positive direction
-  return "A->B";
+  return result;
 }
