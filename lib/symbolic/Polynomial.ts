@@ -1,3 +1,10 @@
+import {
+  parse as mathParse,
+  MathNode,
+  fraction as mathjsFraction,
+  format as mathjsFormat,
+} from "mathjs";
+
 /**
  * Multivariate polynomial with numeric coefficients.
  *
@@ -42,7 +49,10 @@ export class Polynomial {
   /**
    * Parse a string expression into a Polynomial.
    * Handles: "r", "3r+5", "10", "2r1+r2", "-r",
-   * "3.5", "0", etc.
+   * "3.5", "0", "2*a", "3r^2", etc.
+   *
+   * Uses mathjs for proper expression parsing,
+   * then converts the AST to our Polynomial.
    */
   static parse(expr: string): Polynomial {
     if (typeof expr !== "string") {
@@ -53,59 +63,117 @@ export class Polynomial {
       return Polynomial.zero();
     }
 
-    // Try pure number first
+    // Handle Infinity / -Infinity
+    if (expr === "Infinity" || expr === "+Infinity") {
+      return Polynomial.constant(Infinity);
+    }
+    if (expr === "-Infinity") {
+      return Polynomial.constant(-Infinity);
+    }
+
+    // Try pure number first (fast path)
     const asNum = Number(expr);
     if (!isNaN(asNum) && expr !== "") {
       return Polynomial.constant(asNum);
     }
 
-    // Split on + and - keeping sign with each token
-    const tokens =
-      expr.match(/[+-]?[^+-]+/g) || [];
+    // Insert implicit multiplication for patterns
+    // like "2r", "3x1" so mathjs can parse them.
+    // Matches: digit followed by letter, or
+    // letter/digit followed by letter (for "rr")
+    const prepared = expr.replace(
+      /(\d)([a-zA-Z])/g, "$1 * $2"
+    );
 
-    let result = Polynomial.zero();
-    for (const raw of tokens) {
-      const tok = raw.trim();
-      if (tok === "") continue;
-
-      // Pure number token
-      const num = Number(tok);
-      if (!isNaN(num)) {
-        result = result.add(Polynomial.constant(num));
-        continue;
-      }
-
-      // coefficient * variable, e.g. "2r", "-r", "r",
-      // "3.5x"
-      const m = tok.match(
-        /^([+-]?\d*\.?\d*)([a-zA-Z_]\w*)$/
-      );
-      if (m) {
-        const coefStr = m[1];
-        let coef: number;
-        if (
-          coefStr === "" ||
-          coefStr === "+"
-        ) {
-          coef = 1;
-        } else if (coefStr === "-") {
-          coef = -1;
-        } else {
-          coef = Number(coefStr);
-        }
-        const varName = m[2];
-        result = result.add(
-          Polynomial.variable(varName).scale(coef)
-        );
-        continue;
-      }
-
-      // Fallback: treat whole token as a variable
-      result = result.add(
-        Polynomial.variable(tok)
-      );
+    try {
+      const tree = mathParse(prepared);
+      return Polynomial.fromMathNode(tree);
+    } catch {
+      // Fallback: treat as a single variable
+      return Polynomial.variable(expr);
     }
-    return result;
+  }
+
+  /**
+   * Convert a mathjs AST node into a Polynomial.
+   */
+  private static fromMathNode(
+    node: MathNode
+  ): Polynomial {
+    switch (node.type) {
+      case "ConstantNode": {
+        const val = (node as unknown as { value: number }).value;
+        return Polynomial.constant(val);
+      }
+
+      case "SymbolNode": {
+        const name =
+          (node as unknown as { name: string }).name;
+        return Polynomial.variable(name);
+      }
+
+      case "OperatorNode": {
+        const op = (node as unknown as { op: string }).op;
+        const args =
+          (node as unknown as { args: MathNode[] }).args;
+
+        if (op === "+" && args.length === 2) {
+          return Polynomial.fromMathNode(args[0])
+            .add(Polynomial.fromMathNode(args[1]));
+        }
+        if (op === "-" && args.length === 2) {
+          return Polynomial.fromMathNode(args[0])
+            .subtract(
+              Polynomial.fromMathNode(args[1])
+            );
+        }
+        if (op === "-" && args.length === 1) {
+          return Polynomial.fromMathNode(
+            args[0]
+          ).negate();
+        }
+        if (op === "+" && args.length === 1) {
+          return Polynomial.fromMathNode(args[0]);
+        }
+        if (op === "*" && args.length === 2) {
+          return Polynomial.fromMathNode(args[0])
+            .multiply(
+              Polynomial.fromMathNode(args[1])
+            );
+        }
+        if (op === "^" && args.length === 2) {
+          const base =
+            Polynomial.fromMathNode(args[0]);
+          const expNode = args[1];
+          if (
+            expNode.type === "ConstantNode"
+          ) {
+            const exp =
+              (expNode as unknown as { value: number }).value;
+            if (
+              Number.isInteger(exp) && exp >= 0
+            ) {
+              let result = Polynomial.constant(1);
+              for (let i = 0; i < exp; i++) {
+                result = result.multiply(base);
+              }
+              return result;
+            }
+          }
+        }
+        break;
+      }
+
+      case "ParenthesisNode": {
+        const content =
+          (node as unknown as { content: MathNode }).content;
+        return Polynomial.fromMathNode(content);
+      }
+    }
+
+    // Unsupported node: treat the string as a
+    // variable name
+    return Polynomial.variable(node.toString());
   }
 
   // ----- arithmetic -----
@@ -313,10 +381,15 @@ export class Polynomial {
 /** Format a number, dropping unnecessary decimals. */
 function formatNum(n: number): string {
   if (Number.isInteger(n)) return n.toString();
-  // Reasonable decimal precision
-  const s = n.toPrecision(10);
-  // Remove trailing zeros after decimal
-  return parseFloat(s).toString();
+  try {
+    const f = mathjsFraction(n);
+    return mathjsFormat(
+      f, { fraction: "ratio" }
+    );
+  } catch {
+    const s = n.toPrecision(10);
+    return parseFloat(s).toString();
+  }
 }
 
 /**

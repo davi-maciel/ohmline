@@ -1,4 +1,8 @@
 import { Polynomial } from "./Polynomial";
+import {
+  fraction as mathjsFraction,
+  format as mathjsFormat,
+} from "mathjs";
 
 /**
  * Rational expression: numerator / denominator where
@@ -48,9 +52,12 @@ export class RationalExpr {
     if (!isFinite(n)) {
       return RationalExpr.INFINITY;
     }
+    // Convert to integer fraction to preserve
+    // exact rational representation
+    const [num, den] = toIntFraction(n);
     return new RationalExpr(
-      Polynomial.constant(n),
-      Polynomial.constant(1)
+      Polynomial.constant(num),
+      Polynomial.constant(den)
     );
   }
 
@@ -197,9 +204,9 @@ export class RationalExpr {
       return numStr;
     }
 
-    // Both numeric — display as decimal
+    // Both numeric — display as fraction
     if (this.isNumeric()) {
-      return formatNum(this.toNumber());
+      return `${numStr}/${denStr}`;
     }
 
     // Wrap in parens if the sub-expression has
@@ -301,6 +308,18 @@ export class RationalExpr {
       ];
     }
 
+    // Case 5b: factor out numeric GCD from all
+    // coefficients of numerator and denominator
+    const nCoefGcd = coefficientGcd(n);
+    const dCoefGcd = coefficientGcd(d);
+    if (nCoefGcd > 1e-15 && dCoefGcd > 1e-15) {
+      const commonG = gcd(nCoefGcd, dCoefGcd);
+      if (commonG > 1e-15 && commonG !== 1) {
+        n = n.scale(1 / commonG);
+        d = d.scale(1 / commonG);
+      }
+    }
+
     // Case 6: single-variable polynomial GCD
     const nVars = n.getVariables();
     const dVars = d.getVariables();
@@ -344,8 +363,14 @@ export class RationalExpr {
 function formatNum(n: number): string {
   if (!isFinite(n)) return "Infinity";
   if (Number.isInteger(n)) return n.toString();
-  const s = n.toPrecision(10);
-  return parseFloat(s).toString();
+  // Display non-integers as simplified fractions
+  try {
+    const f = mathjsFraction(n);
+    return mathjsFormat(f, { fraction: "ratio" });
+  } catch {
+    const s = n.toPrecision(10);
+    return parseFloat(s).toString();
+  }
 }
 
 function needsParens(s: string): boolean {
@@ -353,28 +378,70 @@ function needsParens(s: string): boolean {
   return /[^e][+-]/.test(s);
 }
 
+/**
+ * Convert a decimal number to an integer fraction
+ * [numerator, denominator] in lowest terms.
+ * Uses mathjs for accurate conversion.
+ */
+function toIntFraction(
+  n: number
+): [number, number] {
+  if (Number.isInteger(n)) return [n, 1];
+  if (n === 0) return [0, 1];
+  try {
+    const f = mathjsFraction(n);
+    const num = Number(f.n) * (f.s < 0 ? -1 : 1);
+    const den = Number(f.d);
+    return [num, den];
+  } catch {
+    return [n, 1];
+  }
+}
+
 /** GCD of two positive numbers (Euclidean). */
 function gcd(a: number, b: number): number {
-  // For floating point, use tolerance
   a = Math.abs(a);
   b = Math.abs(b);
   if (a < 1e-15) return b;
   if (b < 1e-15) return a;
-  // If both are close to integers, use integer GCD
-  if (
-    Math.abs(a - Math.round(a)) < 1e-10
-    && Math.abs(b - Math.round(b)) < 1e-10
-  ) {
-    let ia = Math.round(a);
-    let ib = Math.round(b);
-    while (ib !== 0) {
-      const t = ib;
-      ib = ia % ib;
-      ia = t;
-    }
-    return ia;
+  // Convert both to integer fractions, then
+  // compute GCD of the resulting integers.
+  const [aN, aD] = toIntFraction(a);
+  const [bN, bD] = toIntFraction(b);
+  // gcd(a/b, c/d) = gcd(a,c) / lcm(b,d)
+  const gN = intGcd(
+    Math.abs(aN), Math.abs(bN)
+  );
+  const gD = intLcm(aD, bD);
+  return gN / gD;
+}
+
+function intGcd(a: number, b: number): number {
+  a = Math.round(Math.abs(a));
+  b = Math.round(Math.abs(b));
+  while (b !== 0) {
+    const t = b;
+    b = a % b;
+    a = t;
   }
-  return 1;
+  return a;
+}
+
+function intLcm(a: number, b: number): number {
+  if (a === 0 || b === 0) return 0;
+  return Math.abs(a * b) / intGcd(a, b);
+}
+
+/**
+ * Compute GCD of all coefficients in a polynomial.
+ */
+function coefficientGcd(p: Polynomial): number {
+  const terms = p.getTerms();
+  let result = 0;
+  for (const [, coef] of terms) {
+    result = gcd(result, Math.abs(coef));
+  }
+  return result;
 }
 
 /** Get the leading coefficient of a polynomial. */

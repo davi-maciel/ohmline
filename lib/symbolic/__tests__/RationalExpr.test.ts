@@ -1,4 +1,5 @@
 import { RationalExpr } from "../RationalExpr";
+import { Polynomial } from "../Polynomial";
 
 let passed = 0;
 let failed = 0;
@@ -268,6 +269,57 @@ assert(
   !RationalExpr.fromNumber(5)
     .equals(RationalExpr.fromNumber(3)),
   "5 != 3"
+);
+
+// --- fraction simplification ---
+
+// 2/6 displays as 1/3
+assertEq(
+  new RationalExpr(
+    Polynomial.constant(2),
+    Polynomial.constant(6)
+  ).toString(),
+  "1/3",
+  "2/6 simplifies to 1/3"
+);
+
+// 0.5 displays as 1/2
+assertEq(
+  RationalExpr.fromNumber(0.5).toString(),
+  "1/2",
+  "0.5 displays as 1/2"
+);
+
+// 1/3 displays as 1/3
+assertEq(
+  RationalExpr.fromNumber(1 / 3).toString(),
+  "1/3",
+  "1/3 displays as 1/3"
+);
+
+// 1/4 via reciprocal
+assertEq(
+  RationalExpr.fromNumber(4)
+    .reciprocal().toString(),
+  "1/4",
+  "1/4 displays as 1/4"
+);
+
+// 2r/4 simplifies to r/2
+assertEq(
+  RationalExpr.parse("2r")
+    .divide(RationalExpr.fromNumber(4))
+    .toString(),
+  "r/2",
+  "2r/4 simplifies to r/2"
+);
+
+// 0.5 display with unit
+assertEq(
+  RationalExpr.fromNumber(0.5)
+    .toDisplayString("\u03A9"),
+  "1/2\u03A9",
+  "0.5 displays as 1/2 with unit"
 );
 
 // --- summary ---

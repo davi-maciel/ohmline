@@ -308,10 +308,19 @@ export default function CircuitCanvas() {
       ...prev,
       edges: prev.edges.map((edge) =>
         edge.id === edgeId
-          ? { ...edge, resistance: value !== '' ? value : 1 }
+          ? { ...edge, resistance: value }
           : edge
       ),
     }));
+  };
+
+  const commitResistance = (
+    edgeId: string,
+    value: string
+  ) => {
+    if (value === '') {
+      updateResistance(edgeId, '1');
+    }
   };
 
   const updateNodePotential = (
@@ -492,7 +501,12 @@ export default function CircuitCanvas() {
       svg += `<path d="${pathD}" stroke="${hasNonZeroCurrent && showCurrents ? '#DC2626' : '#4B5563'}" stroke-width="${hasNonZeroCurrent && showCurrents ? '3' : '2'}" fill="none"/>`;
 
       // Resistance label
-      const resistanceText = typeof edge.resistance === "number" ? `${edge.resistance}Ω` : edge.resistance;
+      const rVal = edge.resistance;
+      const isNumericR = typeof rVal === "number"
+        || (typeof rVal === "string"
+          && /^-?[\d.]+$/.test(rVal));
+      const resistanceText = isNumericR
+        ? `${rVal}Ω` : String(rVal);
       svg += `<text x="${midX}" y="${midY - 10}" fill="#1F2937" font-size="12" text-anchor="middle" font-family="Arial, sans-serif">${resistanceText}</text>`;
 
       // Current label
@@ -572,7 +586,7 @@ export default function CircuitCanvas() {
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 text-gray-900">
       {/* Toolbar */}
       <div className="bg-white p-4 rounded-lg shadow">
         <div className="flex gap-2 flex-wrap">
@@ -735,7 +749,19 @@ export default function CircuitCanvas() {
         onMouseMove={handleCanvasMouseMove}
         onMouseUp={handleCanvasMouseUp}
         onMouseLeave={handleCanvasMouseUp}
-        className="relative bg-white rounded-lg shadow h-[600px] border-2 border-gray-200 cursor-crosshair"
+        className={`relative bg-white rounded-lg shadow h-[600px] border-2 border-gray-200 ${
+          mode === "add-node"
+            ? "cursor-crosshair"
+            : mode === "delete"
+            ? "cursor-pointer"
+            : mode === "add-edge"
+            ? "cursor-pointer"
+            : mode === "calculate-resistance"
+            ? "cursor-pointer"
+            : draggedNode
+            ? "cursor-grabbing"
+            : "cursor-default"
+        }`}
       >
         {/* Render edges */}
         <svg className="absolute inset-0 w-full h-full pointer-events-none">
@@ -833,6 +859,9 @@ export default function CircuitCanvas() {
                   onClick={(e) => handleEdgeClick(edge.id, e)}
                 >
                   {typeof edge.resistance === "number"
+                    || (typeof edge.resistance === "string"
+                      && /^-?[\d.]+$/.test(
+                        edge.resistance))
                     ? `${edge.resistance}Ω`
                     : edge.resistance}
                 </text>
@@ -941,7 +970,18 @@ export default function CircuitCanvas() {
                   <input
                     type="text"
                     value={edge.resistance}
-                    onChange={(e) => updateResistance(edge.id, e.target.value)}
+                    onChange={(e) =>
+                      updateResistance(
+                        edge.id,
+                        e.target.value
+                      )
+                    }
+                    onBlur={(e) =>
+                      commitResistance(
+                        edge.id,
+                        e.target.value
+                      )
+                    }
                     className="px-2 py-1 border rounded w-32"
                     placeholder="Resistance"
                   />

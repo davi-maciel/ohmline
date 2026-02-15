@@ -58,6 +58,35 @@ assertEq(
   "parse r+10"
 );
 
+// --- parse with explicit multiplication ---
+
+assertEq(
+  Polynomial.parse("2*a").toString(), "2a",
+  "parse 2*a"
+);
+assert(
+  Polynomial.parse("2*a")
+    .equals(Polynomial.parse("2a")),
+  "2*a equals 2a"
+);
+assertEq(
+  Polynomial.parse("3*r+5").toString(), "3r+5",
+  "parse 3*r+5"
+);
+assertEq(
+  Polynomial.parse("-3*x").toString(), "-3x",
+  "parse -3*x"
+);
+assertEq(
+  Polynomial.parse("2*a+3*b").toString(),
+  "2a+3b",
+  "parse 2*a+3*b"
+);
+assertEq(
+  Polynomial.parse("3*r^2").toString(), "3r^2",
+  "parse 3*r^2"
+);
+
 // --- static constructors ---
 
 assert(
