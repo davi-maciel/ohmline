@@ -15,9 +15,20 @@ import {
 import {
   applyForceDirectedLayout,
 } from "@/lib/graphLayout";
+import UiSwitch from "@/components/UiSwitch";
 import {
   calculateCurrents,
 } from "@/lib/currentCalculator";
+
+/**
+ * Let long expressions wrap after operators
+ * instead of in the middle of a number.
+ */
+function breakable(s: string): React.ReactNode[] {
+  return s.split(/(?<=[+\-/\u00B7)])/).flatMap(
+    (part, i) => (i === 0 ? [part] : [<wbr key={i} />, part])
+  );
+}
 
 export default function CircuitCanvas() {
   const [circuit, setCircuit] = useState<Circuit>({
@@ -40,8 +51,6 @@ export default function CircuitCanvas() {
   const [calculationNodes, setCalculationNodes] = useState<
     string[]
   >([]);
-  const [equivalentResistance, setEquivalentResistance] =
-    useState<RationalExpr | null>(null);
   const [showCurrents, setShowCurrents] =
     useState<boolean>(true);
   const [draggedNode, setDraggedNode] = useState<
@@ -88,6 +97,18 @@ export default function CircuitCanvas() {
   const edgeCurrents = useMemo(() => {
     return calculateCurrents(circuit);
   }, [circuit]);
+
+  // Derived, so it stays in sync with undo/redo
+  // and edits made while the result is shown
+  const equivalentResistance =
+    useMemo<RationalExpr | null>(() => {
+      if (calculationNodes.length !== 2) return null;
+      return calculateEquivalentResistance(
+        circuit,
+        calculationNodes[0],
+        calculationNodes[1]
+      );
+    }, [circuit, calculationNodes]);
 
   // Update history when circuit changes
   useEffect(() => {
@@ -150,6 +171,18 @@ export default function CircuitCanvas() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Leave typing in form fields alone (Space,
+      // Backspace and undo belong to the field)
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.isContentEditable)
+      ) {
+        return;
+      }
       // Space key for panning
       if (e.code === "Space") {
         e.preventDefault();
@@ -205,7 +238,6 @@ export default function CircuitCanvas() {
         setSelectedNodes([]);
         setSelectedEdges([]);
         setCalculationNodes([]);
-        setEquivalentResistance(null);
       }
     };
 
@@ -492,20 +524,10 @@ export default function CircuitCanvas() {
         setSelectedNodes([]);
       }
     } else if (mode === "calculate-resistance") {
-      setCalculationNodes((prev) => {
-        const newSelection = [...prev, nodeId];
-        if (newSelection.length === 2) {
-          const result =
-            calculateEquivalentResistance(
-              circuit,
-              newSelection[0],
-              newSelection[1]
-            );
-          setEquivalentResistance(result);
-          return newSelection;
-        }
-        return newSelection;
-      });
+      // A third click starts a new pair
+      setCalculationNodes((prev) =>
+        prev.length >= 2 ? [nodeId] : [...prev, nodeId]
+      );
     }
   };
 
@@ -655,7 +677,6 @@ export default function CircuitCanvas() {
             setSelectedNodes([]);
             setSelectedEdges([]);
             setCalculationNodes([]);
-            setEquivalentResistance(null);
           } else {
             alert("Invalid circuit file format");
           }
@@ -894,28 +915,73 @@ export default function CircuitCanvas() {
 
   // Cursor for canvas
   const canvasCursor = isPanning
-    ? "cursor-grabbing"
+    ? "grabbing"
     : spaceHeldRef.current
-      ? "cursor-grab"
+      ? "grab"
       : mode === "add-node"
-        ? "cursor-crosshair"
-        : mode === "delete"
-          ? "cursor-pointer"
-          : mode === "add-edge"
-            ? "cursor-pointer"
-            : mode === "calculate-resistance"
-              ? "cursor-pointer"
-              : draggedNode
-                ? "cursor-grabbing"
-                : "cursor-default";
+        ? "crosshair"
+        : mode === "select"
+          ? draggedNode
+            ? "grabbing"
+            : "default"
+          : "pointer";
 
   // SVG transform string for the viewport
   const svgTransform =
     `scale(${zoom})` +
     ` translate(${-viewOffset.x}, ${-viewOffset.y})`;
 
+  const edgesClickable =
+    mode === "delete" || mode === "select";
+
+  const hint =
+    mode === "add-node"
+      ? "Click the canvas to place a node"
+      : mode === "add-edge"
+        ? selectedNodes.length === 1
+          ? "Pick the second node"
+          : "Pick two nodes to connect them"
+        : mode === "delete"
+          ? "Click a node or edge to delete it"
+          : mode === "calculate-resistance"
+            ? calculationNodes.length === 1
+              ? "Pick the second node"
+              : calculationNodes.length === 2
+                ? "Pick another node to start a new pair"
+                : "Pick two nodes to measure Req"
+            : selectedNodes.length > 0 ||
+                selectedEdges.length > 0
+              ? `Selected: ${selectedNodes.length} node` +
+                `${selectedNodes.length !== 1 ? "s" : ""}` +
+                `, ${selectedEdges.length} edge` +
+                `${selectedEdges.length !== 1 ? "s" : ""}`
+              : "Drag nodes to move \u00B7 Space+drag to pan";
+
+  const tools: {
+    id: typeof mode;
+    label: React.ReactNode;
+    key: string;
+  }[] = [
+    { id: "select", label: "Select", key: "select" },
+    { id: "add-node", label: "Node", key: "node" },
+    { id: "add-edge", label: "Resistor", key: "edge" },
+    { id: "delete", label: "Delete", key: "delete" },
+  ];
+
+  const selectTool = (id: typeof mode) => {
+    setMode(id);
+    if (id === "add-edge") setSelectedNodes([]);
+    if (id === "calculate-resistance") {
+      setCalculationNodes([]);
+    }
+  };
+
+  const isEmpty =
+    circuit.nodes.length === 0 &&
+    circuit.edges.length === 0;
+
   return (
-    <div className="relative w-full h-full text-gray-900">
+    <div className="oh-app" data-mode={mode}>
       {/* Infinite canvas */}
       <div
         ref={canvasRef}
@@ -924,44 +990,65 @@ export default function CircuitCanvas() {
         onMouseMove={handleCanvasMouseMove}
         onMouseUp={handleCanvasMouseUp}
         onMouseLeave={handleCanvasMouseUp}
-        className={
-          "absolute inset-0 bg-white overflow-hidden"
-          + ` ${canvasCursor}`
-        }
+        className="oh-canvas"
+        style={{ cursor: canvasCursor }}
       >
-        {/* Dot grid background */}
-        <svg className="absolute inset-0 w-full h-full pointer-events-none">
+        {/* Grid background: each look shows dots,
+            lines, or nothing */}
+        <svg className="oh-grid" aria-hidden="true">
           <defs>
             <pattern
-              id="dotGrid"
+              id="ohGrid"
               width={20 * zoom}
               height={20 * zoom}
               patternUnits="userSpaceOnUse"
               x={(-viewOffset.x % 20) * zoom}
               y={(-viewOffset.y % 20) * zoom}
             >
+              <path
+                className="oh-grid-line"
+                d={`M ${20 * zoom} 0 L 0 0 0 ${20 * zoom}`}
+                fill="none"
+              />
               <circle
+                className="oh-grid-dot"
                 cx={1}
                 cy={1}
                 r={1}
-                fill="#d1d5db"
+              />
+            </pattern>
+            <pattern
+              id="ohGridMajor"
+              width={100 * zoom}
+              height={100 * zoom}
+              patternUnits="userSpaceOnUse"
+              x={(-viewOffset.x % 100) * zoom}
+              y={(-viewOffset.y % 100) * zoom}
+            >
+              <path
+                className="oh-grid-major"
+                d={
+                  `M ${100 * zoom} 0 L 0 0` +
+                  ` 0 ${100 * zoom}`
+                }
+                fill="none"
               />
             </pattern>
           </defs>
           <rect
             width="100%"
             height="100%"
-            fill="url(#dotGrid)"
+            fill="url(#ohGrid)"
+          />
+          <rect
+            width="100%"
+            height="100%"
+            fill="url(#ohGridMajor)"
           />
         </svg>
 
         {/* Edges (SVG layer) */}
-        <svg
-          className={
-            "absolute inset-0 w-full h-full"
-            + " pointer-events-none"
-          }
-        >
+        <svg className="oh-wires">
           <g transform={svgTransform}>
             {circuit.edges.map((edge) => {
               const nodeA = getNodeById(edge.nodeA);
@@ -1059,21 +1146,37 @@ export default function CircuitCanvas() {
               const isSelected = selectedEdges.includes(
                 edge.id
               );
+              const isLive =
+                !!hasNonZeroCurrent && showCurrents;
+              // Flow direction for looks that animate
+              // current (path runs nodeA -> nodeB)
+              const isReverse =
+                isLive &&
+                current!.isNumeric() &&
+                current!.toNumber() < 0;
 
               return (
-                <g key={edge.id}>
+                <g
+                  key={edge.id}
+                  className={
+                    "oh-edge" +
+                    (isSelected ? " is-selected" : "") +
+                    (isLive ? " is-live" : "") +
+                    (isReverse ? " is-reverse" : "")
+                  }
+                >
                   {/* Invisible thick path for clicking */}
                   <path
                     d={pathD}
+                    className="oh-edge-hit"
                     stroke="transparent"
                     strokeWidth={20 / zoom}
                     fill="none"
-                    className={
-                      mode === "delete" ||
-                      mode === "select"
-                        ? "pointer-events-auto cursor-pointer"
-                        : "pointer-events-none"
-                    }
+                    style={{
+                      pointerEvents: edgesClickable
+                        ? "auto"
+                        : "none",
+                    }}
                     onClick={(e) =>
                       handleEdgeClick(edge.id, e)
                     }
@@ -1081,41 +1184,15 @@ export default function CircuitCanvas() {
                   {/* Visible path */}
                   <path
                     d={pathD}
-                    stroke={
-                      isSelected
-                        ? "#10B981"
-                        : hasNonZeroCurrent &&
-                            showCurrents
-                          ? "#DC2626"
-                          : "#4B5563"
-                    }
-                    strokeWidth={
-                      isSelected
-                        ? "4"
-                        : hasNonZeroCurrent &&
-                            showCurrents
-                          ? "3"
-                          : "2"
-                    }
+                    className="oh-edge-line"
                     fill="none"
-                    className="pointer-events-none"
-                    strokeDasharray={
-                      isSelected ? "5,5" : "none"
-                    }
                   />
                   {/* Resistance label */}
                   <text
                     x={midX}
                     y={midY - 10}
-                    fill="#1F2937"
-                    fontSize="12"
                     textAnchor="middle"
-                    className={
-                      mode === "delete" ||
-                      mode === "select"
-                        ? "pointer-events-auto cursor-pointer"
-                        : "pointer-events-auto"
-                    }
+                    className="oh-edge-label"
                     onClick={(e) =>
                       handleEdgeClick(edge.id, e)
                     }
@@ -1135,11 +1212,8 @@ export default function CircuitCanvas() {
                     <text
                       x={midX}
                       y={midY + 20}
-                      fill="#DC2626"
-                      fontSize="11"
-                      fontWeight="bold"
                       textAnchor="middle"
-                      className="pointer-events-auto"
+                      className="oh-edge-current"
                     >
                       I ={" "}
                       {current.toDisplayString("A")}
@@ -1160,7 +1234,7 @@ export default function CircuitCanvas() {
               ` ${-viewOffset.y}px)`,
             transformOrigin: "0 0",
           }}
-          className="absolute top-0 left-0 w-0 h-0"
+          className="oh-nodes"
         >
           {circuit.nodes.map((node) => {
             const isSelected = selectedNodes.includes(
@@ -1170,6 +1244,9 @@ export default function CircuitCanvas() {
               calculationNodes.includes(node.id);
             const isDragging =
               draggedNode === node.id;
+            const hasPotential =
+              node.potential !== undefined &&
+              node.potential !== "";
 
             return (
               <div
@@ -1181,482 +1258,306 @@ export default function CircuitCanvas() {
                   handleNodeClick(node.id, e)
                 }
                 className={
-                  "absolute w-8 h-8 rounded-full" +
-                  " flex items-center" +
-                  " justify-center text-white" +
-                  " text-xs font-bold" +
-                  " -translate-x-1/2" +
-                  " -translate-y-1/2" +
-                  ` ${
-                    isSelected
-                      ? "bg-green-500 ring-4 ring-green-300"
-                      : isCalcNode
-                        ? "bg-purple-500 ring-4 ring-purple-300"
-                        : "bg-blue-500 hover:bg-blue-600"
-                  }` +
-                  ` ${
-                    mode === "select" && !isDragging
-                      ? "cursor-move"
-                      : isDragging
-                        ? "cursor-grabbing"
-                        : "cursor-pointer"
-                  }`
+                  "oh-node" +
+                  (isSelected ? " is-selected" : "") +
+                  (isCalcNode ? " is-calc" : "") +
+                  (hasPotential ? " is-source" : "")
                 }
                 style={{
                   left: node.x,
                   top: node.y,
+                  cursor:
+                    mode === "select"
+                      ? isDragging
+                        ? "grabbing"
+                        : "move"
+                      : "pointer",
                 }}
               >
-                {node.label}
+                <span className="oh-node-label">
+                  {node.label}
+                </span>
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* Floating toolbar — left */}
-      <div
-        className={
-          "absolute top-4 left-4 z-10" +
-          " flex flex-col gap-2 w-40"
-        }
-      >
-      {/* Undo / Redo card */}
-      <div
-        className={
-          "bg-white/90 backdrop-blur-sm" +
-          " p-2 rounded-lg shadow-lg" +
-          " flex flex-row gap-2"
-        }
-      >
-        <button
-          onClick={undo}
-          disabled={historyIndex === 0}
-          className={
-            "flex-1 px-3 py-2 rounded bg-gray-500" +
-            " text-white hover:bg-gray-600" +
-            " disabled:bg-gray-300" +
-            " disabled:cursor-not-allowed text-sm"
-          }
-          title="Undo (Ctrl/Cmd+Z)"
-        >
-          Undo
-        </button>
-        <button
-          onClick={redo}
-          disabled={
-            historyIndex >= history.length - 1
-          }
-          className={
-            "flex-1 px-3 py-2 rounded bg-gray-500" +
-            " text-white hover:bg-gray-600" +
-            " disabled:bg-gray-300" +
-            " disabled:cursor-not-allowed text-sm"
-          }
-          title="Redo (Ctrl/Cmd+Shift+Z)"
-        >
-          Redo
-        </button>
-      </div>
-      {/* Tools card */}
-      <div
-        className={
-          "bg-white/90 backdrop-blur-sm" +
-          " p-3 rounded-lg shadow-lg" +
-          " flex flex-col gap-2" +
-          " max-h-[calc(100vh-6rem)]" +
-          " overflow-y-auto"
-        }
-      >
-        <button
-          onClick={() => setMode("select")}
-          className={
-            "w-full px-3 py-2 rounded text-sm" +
-            ` ${
-              mode === "select"
-                ? " bg-blue-500 text-white"
-                : " bg-gray-200 text-gray-700"
-            }`
-          }
-        >
-          Select
-        </button>
-        <button
-          onClick={() => setMode("add-node")}
-          className={
-            "w-full px-3 py-2 rounded text-sm" +
-            ` ${
-              mode === "add-node"
-                ? " bg-blue-500 text-white"
-                : " bg-gray-200 text-gray-700"
-            }`
-          }
-        >
-          Add Node
-        </button>
-        <button
-          onClick={() => {
-            setMode("add-edge");
-            setSelectedNodes([]);
-          }}
-          className={
-            "w-full px-3 py-2 rounded text-sm" +
-            ` ${
-              mode === "add-edge"
-                ? " bg-blue-500 text-white"
-                : " bg-gray-200 text-gray-700"
-            }`
-          }
-        >
-          Add Edge
-        </button>
-        <button
-          onClick={() => setMode("delete")}
-          className={
-            "w-full px-3 py-2 rounded text-sm" +
-            ` ${
-              mode === "delete"
-                ? " bg-red-500 text-white"
-                : " bg-gray-200 text-gray-700"
-            }`
-          }
-        >
-          Delete
-        </button>
-        <div className="border-t-2 border-gray-300 my-1" />
-        <button
-          onClick={() => {
-            setMode("calculate-resistance");
-            setCalculationNodes([]);
-            setEquivalentResistance(null);
-          }}
-          className={
-            "w-full px-3 py-2 rounded text-sm" +
-            ` ${
+      {/* Top bar */}
+      <header className="oh-top">
+        <div className="oh-brand">
+          <span className="oh-brand-name">Ohmline</span>
+          <small className="oh-brand-tag">
+            circuit designer
+          </small>
+        </div>
+        <div className="oh-history">
+          <button
+            type="button"
+            className="oh-btn"
+            onClick={undo}
+            disabled={historyIndex === 0}
+            title="Undo (Ctrl/Cmd+Z)"
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            className="oh-btn"
+            onClick={redo}
+            disabled={
+              historyIndex >= history.length - 1
+            }
+            title="Redo (Ctrl/Cmd+Shift+Z)"
+          >
+            Redo
+          </button>
+        </div>
+        <UiSwitch />
+      </header>
+
+      {/* Tool palette — left */}
+      <aside className="oh-tools" aria-label="Tools">
+        <section className="oh-group">
+          <h2 className="oh-group-title">Draw</h2>
+          {tools.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              className="oh-tool"
+              data-tool={t.key}
+              aria-pressed={mode === t.id}
+              onClick={() => selectTool(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </section>
+        <section className="oh-group">
+          <h2 className="oh-group-title">Analyze</h2>
+          <button
+            type="button"
+            className="oh-tool"
+            data-tool="measure"
+            aria-pressed={
               mode === "calculate-resistance"
-                ? " bg-purple-500 text-white"
-                : " bg-gray-200 text-gray-700"
-            }`
-          }
-        >
-          Calculate R<sub>eq</sub>
-        </button>
-        <button
-          onClick={handleAutoLayout}
-          disabled={circuit.nodes.length === 0}
-          className={
-            "w-full px-3 py-2 rounded bg-green-500" +
-            " text-white hover:bg-green-600" +
-            " disabled:bg-gray-300" +
-            " disabled:cursor-not-allowed text-sm"
-          }
-        >
-          Auto-Layout
-        </button>
-        <button
-          onClick={() =>
-            setShowCurrents(!showCurrents)
-          }
-          className={
-            "w-full px-3 py-2 rounded text-sm" +
-            ` ${
-              showCurrents
-                ? " bg-red-500 text-white"
-                : " bg-gray-200 text-gray-700"
-            }`
-          }
-        >
-          {showCurrents ? "Hide" : "Show"} Currents
-        </button>
-        <div className="border-t-2 border-gray-300 my-1" />
-        <button
-          onClick={handleSaveCircuit}
-          disabled={
-            circuit.nodes.length === 0 &&
-            circuit.edges.length === 0
-          }
-          className={
-            "w-full px-3 py-2 rounded bg-blue-600" +
-            " text-white hover:bg-blue-700" +
-            " disabled:bg-gray-300" +
-            " disabled:cursor-not-allowed text-sm"
-          }
-          title="Save circuit to JSON file"
-        >
-          Save
-        </button>
-        <button
-          onClick={handleLoadCircuit}
-          className={
-            "w-full px-3 py-2 rounded bg-blue-600" +
-            " text-white hover:bg-blue-700 text-sm"
-          }
-          title="Load circuit from JSON file"
-        >
-          Load
-        </button>
-        <div className="border-t-2 border-gray-300 my-1" />
-        <button
-          onClick={handleExportSVG}
-          disabled={circuit.nodes.length === 0}
-          className={
-            "w-full px-3 py-2 rounded bg-green-600" +
-            " text-white hover:bg-green-700" +
-            " disabled:bg-gray-300" +
-            " disabled:cursor-not-allowed text-sm"
-          }
-          title="Export circuit as SVG image"
-        >
-          Export SVG
-        </button>
-        <button
-          onClick={handleExportPNG}
-          disabled={circuit.nodes.length === 0}
-          className={
-            "w-full px-3 py-2 rounded bg-green-600" +
-            " text-white hover:bg-green-700" +
-            " disabled:bg-gray-300" +
-            " disabled:cursor-not-allowed text-sm"
-          }
-          title="Export circuit as PNG image"
-        >
-          Export PNG
-        </button>
-
-        {/* Status messages */}
-        {mode === "add-edge" &&
-          selectedNodes.length === 1 && (
-            <p className="text-xs text-gray-600">
-              Select the second node to create an edge
-            </p>
-          )}
-        {mode === "delete" && (
-          <p className="text-xs text-red-600">
-            Click on a node or edge to delete it
-          </p>
-        )}
-        {mode === "calculate-resistance" &&
-          calculationNodes.length === 1 && (
-            <p className="text-xs text-gray-600">
-              Select the second node to calculate
-              equivalent resistance
-            </p>
-          )}
-        {mode === "select" &&
-          (selectedNodes.length > 0 ||
-            selectedEdges.length > 0) && (
-            <p className="text-xs text-blue-600">
-              Selected: {selectedNodes.length} node
-              {selectedNodes.length !== 1 ? "s" : ""}
-              , {selectedEdges.length} edge
-              {selectedEdges.length !== 1 ? "s" : ""}
-            </p>
-          )}
-      </div>
-      </div>
-
-      {/* Floating panels — right */}
-      <div
-        className={
-          "absolute top-4 right-4 z-10" +
-          " flex flex-col gap-4" +
-          " max-h-[calc(100vh-2rem)]" +
-          " overflow-y-auto w-72"
-        }
-      >
-        {/* Node properties */}
-        {circuit.nodes.length > 0 && (
-          <div
-            className={
-              "bg-white/90 backdrop-blur-sm" +
-              " p-4 rounded-lg shadow-lg"
+            }
+            onClick={() =>
+              selectTool("calculate-resistance")
             }
           >
-            <h3 className="text-sm font-semibold mb-2">
-              Node Properties
-            </h3>
-            <div className="space-y-2">
-              {circuit.nodes.map((node) => (
-                <div
-                  key={node.id}
-                  className="flex items-center gap-2"
-                >
-                  <input
-                    type="text"
-                    value={node.label}
-                    onChange={(e) =>
-                      updateNodeLabel(
-                        node.id,
-                        e.target.value
-                      )
-                    }
-                    className={
-                      "px-2 py-1 border rounded" +
-                      " w-14 text-xs font-semibold"
-                    }
-                  />
-                  <span className="text-xs text-gray-500">
-                    V =
-                  </span>
-                  <input
-                    type="text"
-                    value={node.potential ?? ""}
-                    onChange={(e) =>
-                      updateNodePotential(
-                        node.id,
-                        e.target.value
-                      )
-                    }
-                    className={
-                      "px-2 py-1 border rounded" +
-                      " w-20 text-xs"
-                    }
-                    placeholder="Potential"
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Edge properties */}
-        {circuit.edges.length > 0 && (
-          <div
-            className={
-              "bg-white/90 backdrop-blur-sm" +
-              " p-4 rounded-lg shadow-lg"
+            <span>
+              Measure R<sub>eq</sub>
+            </span>
+          </button>
+          <button
+            type="button"
+            className="oh-tool"
+            data-tool="currents"
+            aria-pressed={showCurrents}
+            onClick={() =>
+              setShowCurrents(!showCurrents)
             }
           >
-            <h3 className="text-sm font-semibold mb-2">
-              Edge Properties
-            </h3>
-            <div className="space-y-2">
-              {circuit.edges.map((edge) => {
-                const nA = getNodeById(edge.nodeA);
-                const nB = getNodeById(edge.nodeB);
-                return (
-                  <div
-                    key={edge.id}
-                    className={
-                      "flex items-center gap-2"
-                    }
-                  >
-                    <span className="text-xs text-gray-600">
-                      {nA?.label} - {nB?.label}:
-                    </span>
+            Currents
+          </button>
+          <button
+            type="button"
+            className="oh-btn"
+            onClick={handleAutoLayout}
+            disabled={circuit.nodes.length === 0}
+          >
+            Auto-layout
+          </button>
+        </section>
+        <section className="oh-group">
+          <h2 className="oh-group-title">File</h2>
+          <button
+            type="button"
+            className="oh-btn"
+            onClick={handleSaveCircuit}
+            disabled={isEmpty}
+            title="Save circuit to JSON file"
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            className="oh-btn"
+            onClick={handleLoadCircuit}
+            title="Load circuit from JSON file"
+          >
+            Load
+          </button>
+          <button
+            type="button"
+            className="oh-btn"
+            onClick={handleExportSVG}
+            disabled={circuit.nodes.length === 0}
+            title="Export circuit as SVG image"
+          >
+            Export SVG
+          </button>
+          <button
+            type="button"
+            className="oh-btn"
+            onClick={handleExportPNG}
+            disabled={circuit.nodes.length === 0}
+            title="Export circuit as PNG image"
+          >
+            Export PNG
+          </button>
+        </section>
+      </aside>
+
+      {/* Inspector — right */}
+      {(circuit.nodes.length > 0 ||
+        equivalentResistance !== null) && (
+        <aside
+          className="oh-inspector"
+          aria-label="Inspector"
+        >
+          {equivalentResistance !== null && (
+            <section className="oh-card oh-result">
+              <h2 className="oh-card-title">
+                Equivalent resistance
+              </h2>
+              <p className="oh-result-between">
+                between{" "}
+                <b>
+                  {getNodeById(calculationNodes[0])?.label}
+                </b>
+                {" and "}
+                <b>
+                  {getNodeById(calculationNodes[1])?.label}
+                </b>
+              </p>
+              <p className="oh-result-value">
+                <span className="oh-result-symbol">
+                  R<sub>eq</sub> ={" "}
+                </span>
+                {breakable(
+                  equivalentResistance.toDisplayString(
+                    "\u03A9"
+                  )
+                )}
+              </p>
+              <button
+                type="button"
+                className="oh-btn oh-btn-small"
+                onClick={() => setCalculationNodes([])}
+              >
+                Clear
+              </button>
+            </section>
+          )}
+
+          {circuit.nodes.length > 0 && (
+            <section className="oh-card">
+              <h2 className="oh-card-title">Nodes</h2>
+              <div className="oh-rows">
+                {circuit.nodes.map((node) => (
+                  <div key={node.id} className="oh-row">
                     <input
                       type="text"
-                      value={edge.resistance}
+                      aria-label="Node label"
+                      value={node.label}
                       onChange={(e) =>
-                        updateResistance(
-                          edge.id,
+                        updateNodeLabel(
+                          node.id,
                           e.target.value
                         )
                       }
-                      onBlur={(e) =>
-                        commitResistance(
-                          edge.id,
+                      className="oh-input oh-input-label"
+                    />
+                    <span className="oh-row-sym">V =</span>
+                    <input
+                      type="text"
+                      aria-label={
+                        `Potential of ${node.label}`
+                      }
+                      value={node.potential ?? ""}
+                      onChange={(e) =>
+                        updateNodePotential(
+                          node.id,
                           e.target.value
                         )
                       }
-                      className={
-                        "px-2 py-1 border rounded" +
-                        " w-20 text-xs"
-                      }
-                      placeholder="R"
+                      className="oh-input"
+                      placeholder="free"
                     />
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Equivalent resistance */}
-        {equivalentResistance !== null &&
-          calculationNodes.length === 2 && (
-            <div
-              className={
-                "bg-purple-50/90 backdrop-blur-sm" +
-                " p-4 rounded-lg shadow-lg" +
-                " border-2 border-purple-200"
-              }
-            >
-              <h3
-                className={
-                  "text-sm font-semibold mb-2" +
-                  " text-purple-900"
-                }
-              >
-                Equivalent Resistance
-              </h3>
-              <div className="space-y-2">
-                <p className="text-xs text-gray-600">
-                  Between{" "}
-                  <span className="font-semibold">
-                    {
-                      getNodeById(
-                        calculationNodes[0]
-                      )?.label
-                    }
-                  </span>
-                  {" and "}
-                  <span className="font-semibold">
-                    {
-                      getNodeById(
-                        calculationNodes[1]
-                      )?.label
-                    }
-                  </span>
-                </p>
-                <div
-                  className={
-                    "bg-white p-3 rounded" +
-                    " border border-purple-300"
-                  }
-                >
-                  <p
-                    className={
-                      "text-xl font-bold" +
-                      " text-purple-700"
-                    }
-                  >
-                    R<sub>eq</sub> ={" "}
-                    {equivalentResistance.toDisplayString(
-                      "\u03A9"
-                    )}
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    setCalculationNodes([]);
-                    setEquivalentResistance(null);
-                  }}
-                  className={
-                    "mt-2 px-3 py-1 bg-purple-500" +
-                    " text-white rounded" +
-                    " hover:bg-purple-600 text-sm"
-                  }
-                >
-                  Clear Calculation
-                </button>
+                ))}
               </div>
-            </div>
+            </section>
           )}
 
-        {/* Circuit info */}
-        <div
-          className={
-            "bg-white/90 backdrop-blur-sm" +
-            " p-3 rounded-lg shadow-lg"
-          }
-        >
-          <p className="text-xs text-gray-600">
-            Nodes: {circuit.nodes.length} | Edges:{" "}
-            {circuit.edges.length}
-          </p>
-        </div>
-      </div>
+          {circuit.edges.length > 0 && (
+            <section className="oh-card">
+              <h2 className="oh-card-title">Resistors</h2>
+              <div className="oh-rows">
+                {circuit.edges.map((edge) => {
+                  const nA = getNodeById(edge.nodeA);
+                  const nB = getNodeById(edge.nodeB);
+                  return (
+                    <div
+                      key={edge.id}
+                      className={
+                        "oh-row" +
+                        (selectedEdges.includes(edge.id)
+                          ? " is-selected"
+                          : "")
+                      }
+                    >
+                      <span className="oh-row-name">
+                        {nA?.label}
+                        <span className="oh-row-dash">
+                          {"\u2013"}
+                        </span>
+                        {nB?.label}
+                      </span>
+                      <input
+                        type="text"
+                        aria-label={
+                          `Resistance ${nA?.label}` +
+                          `\u2013${nB?.label}`
+                        }
+                        value={edge.resistance}
+                        onChange={(e) =>
+                          updateResistance(
+                            edge.id,
+                            e.target.value
+                          )
+                        }
+                        onBlur={(e) =>
+                          commitResistance(
+                            edge.id,
+                            e.target.value
+                          )
+                        }
+                        className="oh-input"
+                        placeholder="R"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+        </aside>
+      )}
+
+      {/* Status line */}
+      <footer className="oh-status">
+        <span className="oh-hint">{hint}</span>
+        <span className="oh-count">
+          {circuit.nodes.length} node
+          {circuit.nodes.length !== 1 ? "s" : ""}
+          {" \u00B7 "}
+          {circuit.edges.length} resistor
+          {circuit.edges.length !== 1 ? "s" : ""}
+        </span>
+      </footer>
     </div>
   );
 }
