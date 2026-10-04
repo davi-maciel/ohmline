@@ -562,6 +562,27 @@ function assertSymEq(
   );
 }
 
+// --- Edge to a missing node is ignored ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A" },
+      { id: "b", x: 1, y: 0, label: "B" },
+    ],
+    edges: [
+      { id: "e1", nodeA: "a", nodeB: "b", resistance: 10 },
+      { id: "e2", nodeA: "a", nodeB: "ghost",
+        resistance: 5 },
+    ],
+  };
+  assertNumEq(
+    calculateEquivalentResistance(circuit, "a", "b"),
+    10,
+    "edge to missing node ignored"
+  );
+}
+
 // --- summary ---
 
 console.log(

@@ -78,7 +78,7 @@ function substitute(
 
 const SYMBOLIC = [
   "r", "s", "2r", "r+1", "r+s", "3", "5", "1",
-  "2s+3", "Infinity",
+  "2s+3", "Infinity", "0", "-2",
 ];
 
 function randomCircuit(): Circuit {
@@ -156,6 +156,31 @@ for (let t = 0; t < TRIALS; t++) {
   c.nodes[1].potential = 0;
   const cs = calculateCurrents(c);
   const cn = calculateCurrents(withValues(c, env));
+  // KCL in the numeric circuit: at every node
+  // without a source whose currents are all known,
+  // inflow equals outflow
+  for (const n of c.nodes) {
+    if (n.potential !== undefined) continue;
+    let net = RationalExpr.ZERO;
+    let complete = true;
+    for (const e of c.edges) {
+      if (e.nodeA === e.nodeB) continue;
+      if (e.nodeA !== n.id && e.nodeB !== n.id) continue;
+      const i = cn.get(e.id);
+      if (!i || i.isInfinity()) {
+        complete = false;
+        break;
+      }
+      net = e.nodeB === n.id ? net.add(i) : net.subtract(i);
+    }
+    if (complete) {
+      assert(
+        net.isZero(),
+        `trial ${t} KCL at ${n.id}: net ${net}`
+      );
+    }
+  }
+
   for (const e of c.edges) {
     assert(
       sameValue(cs.get(e.id), cn.get(e.id), env),

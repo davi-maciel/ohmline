@@ -105,6 +105,12 @@ export function calculateEquivalentResistance(
   const resistance = parseResistances(circuit);
   if (!resistance) return null;
 
+  // Ignore edges that reference missing nodes
+  const nodeIds = new Set(circuit.nodes.map((n) => n.id));
+  const edges = circuit.edges.filter(
+    (e) => nodeIds.has(e.nodeA) && nodeIds.has(e.nodeB)
+  );
+
   if (nodeAId === nodeBId) {
     return RationalExpr.ZERO;
   }
@@ -118,7 +124,7 @@ export function calculateEquivalentResistance(
   const uf = new UnionFind(allNodeIds);
   const conn = new UnionFind(allNodeIds);
 
-  for (const edge of circuit.edges) {
+  for (const edge of edges) {
     const r = resistance.get(edge)!;
     if (r.isZero()) {
       uf.union(edge.nodeA, edge.nodeB);
@@ -178,7 +184,7 @@ export function calculateEquivalentResistance(
   }
 
   // Process each edge
-  for (const edge of circuit.edges) {
+  for (const edge of edges) {
     const r = resistance.get(edge)!;
 
     // Skip zero-R edges (already merged)

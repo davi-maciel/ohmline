@@ -91,10 +91,14 @@ A unified symbolic algebra library handles both numeric and symbolic values:
 
 **`lib/currentCalculator.ts`** — Edge currents via KCL nodal analysis:
 
-- Separates boundary nodes (known potential) from interior nodes (unknown)
-- Builds conductance matrix for interior nodes, solves for unknown potentials
-- Computes edge currents as I = (V_A - V_B) / R
-- Returns symbolic expressions when variables are present
+- Nodes with a known potential act as ideal sources (boundary nodes)
+- Merges zero-resistance wires; a merged group holding two different
+  potentials is a short between sources (infinite current, piece
+  undetermined)
+- Solves each resistor-connected piece separately, so one singular or
+  ill-posed piece doesn't blank the rest; floating pieces carry 0 A
+- Resistor currents are I = (V_A - V_B) / R; wire currents follow from KCL
+- Edges whose current can't be determined are left out of the map
 
 ### Graph Layout (`lib/graphLayout.ts`)
 
