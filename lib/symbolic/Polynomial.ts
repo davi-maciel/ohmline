@@ -1,26 +1,27 @@
 import {
   parse as mathParse,
   MathNode,
-  fraction as mathjsFraction,
-  format as mathjsFormat,
 } from "mathjs";
+import { Rational } from "./Rational";
 
 /**
- * Multivariate polynomial with numeric coefficients.
+ * Multivariate polynomial with exact rational
+ * coefficients.
  *
- * Internal representation: Map<string, number> where each
- * key is a monomial key (variables sorted alphabetically
- * and joined by "*", e.g. "" for constants, "r" for r,
- * "r1*r2" for r1*r2) and the value is the coefficient.
+ * Internal representation: Map<string, Rational> where
+ * each key is a monomial key (variables sorted
+ * alphabetically and joined by "*", e.g. "" for
+ * constants, "r" for r, "r1*r2" for r1*r2) and the
+ * value is the (non-zero) coefficient.
  */
 export class Polynomial {
-  private terms: Map<string, number>;
+  private terms: Map<string, Rational>;
 
-  constructor(terms?: Map<string, number>) {
+  constructor(terms?: Map<string, Rational>) {
     this.terms = new Map();
     if (terms) {
       for (const [key, coef] of terms) {
-        if (Math.abs(coef) > 1e-15) {
+        if (!coef.isZero()) {
           this.terms.set(key, coef);
         }
       }
@@ -33,16 +34,17 @@ export class Polynomial {
     return new Polynomial();
   }
 
-  static constant(value: number): Polynomial {
-    if (Math.abs(value) <= 1e-15) return Polynomial.zero();
-    const m = new Map<string, number>();
-    m.set("", value);
+  static constant(value: number | Rational): Polynomial {
+    const r = toRational(value);
+    if (r.isZero()) return Polynomial.zero();
+    const m = new Map<string, Rational>();
+    m.set("", r);
     return new Polynomial(m);
   }
 
   static variable(name: string): Polynomial {
-    const m = new Map<string, number>();
-    m.set(name, 1);
+    const m = new Map<string, Rational>();
+    m.set(name, Rational.ONE);
     return new Polynomial(m);
   }
 
@@ -56,24 +58,16 @@ export class Polynomial {
    */
   static parse(expr: string): Polynomial {
     if (typeof expr !== "string") {
-      return Polynomial.constant(Number(expr));
+      return Polynomial.constant(expr);
     }
     expr = expr.replace(/\s/g, "");
     if (expr === "" || expr === "0") {
       return Polynomial.zero();
     }
 
-    // Handle Infinity / -Infinity
-    if (expr === "Infinity" || expr === "+Infinity") {
-      return Polynomial.constant(Infinity);
-    }
-    if (expr === "-Infinity") {
-      return Polynomial.constant(-Infinity);
-    }
-
-    // Try pure number first (fast path)
-    const asNum = Number(expr);
-    if (!isNaN(asNum) && expr !== "") {
+    // Pure decimal literal: parse exactly
+    const asNum = Rational.fromDecimalString(expr);
+    if (asNum) {
       return Polynomial.constant(asNum);
     }
 
@@ -102,7 +96,8 @@ export class Polynomial {
   ): Polynomial {
     switch (node.type) {
       case "ConstantNode": {
-        const val = (node as unknown as { value: number }).value;
+        const val =
+          (node as unknown as { value: number }).value;
         return Polynomial.constant(val);
       }
 
@@ -179,10 +174,11 @@ export class Polynomial {
   // ----- arithmetic -----
 
   add(other: Polynomial): Polynomial {
-    const out = new Map<string, number>(this.terms);
+    const out = new Map<string, Rational>(this.terms);
     for (const [key, coef] of other.terms) {
-      const sum = (out.get(key) || 0) + coef;
-      if (Math.abs(sum) <= 1e-15) {
+      const prev = out.get(key);
+      const sum = prev ? prev.add(coef) : coef;
+      if (sum.isZero()) {
         out.delete(key);
       } else {
         out.set(key, sum);
@@ -196,23 +192,19 @@ export class Polynomial {
   }
 
   negate(): Polynomial {
-    const out = new Map<string, number>();
+    const out = new Map<string, Rational>();
     for (const [key, coef] of this.terms) {
-      out.set(key, -coef);
+      out.set(key, coef.negate());
     }
     return new Polynomial(out);
   }
 
-  scale(s: number): Polynomial {
-    if (Math.abs(s) <= 1e-15) {
-      return Polynomial.zero();
-    }
-    const out = new Map<string, number>();
+  scale(s: number | Rational): Polynomial {
+    const r = toRational(s);
+    if (r.isZero()) return Polynomial.zero();
+    const out = new Map<string, Rational>();
     for (const [key, coef] of this.terms) {
-      const v = coef * s;
-      if (Math.abs(v) > 1e-15) {
-        out.set(key, v);
-      }
+      out.set(key, coef.multiply(r));
     }
     return new Polynomial(out);
   }
@@ -223,12 +215,14 @@ export class Polynomial {
    * alphabetically, and re-joining.
    */
   multiply(other: Polynomial): Polynomial {
-    const out = new Map<string, number>();
+    const out = new Map<string, Rational>();
     for (const [ka, ca] of this.terms) {
       for (const [kb, cb] of other.terms) {
         const key = Polynomial.mergeKeys(ka, kb);
-        const val = (out.get(key) || 0) + ca * cb;
-        if (Math.abs(val) <= 1e-15) {
+        const prev = out.get(key);
+        const prod = ca.multiply(cb);
+        const val = prev ? prev.add(prod) : prod;
+        if (val.isZero()) {
           out.delete(key);
         } else {
           out.set(key, val);
@@ -252,8 +246,14 @@ export class Polynomial {
     return false;
   }
 
+  /** Constant term as an exact rational. */
+  constantTerm(): Rational {
+    return this.terms.get("") || Rational.ZERO;
+  }
+
+  /** Constant term as a (possibly rounded) number. */
   constantValue(): number {
-    return this.terms.get("") || 0;
+    return this.constantTerm().toNumber();
   }
 
   getVariables(): Set<string> {
@@ -267,7 +267,7 @@ export class Polynomial {
     return vars;
   }
 
-  getTerms(): Map<string, number> {
+  getTerms(): Map<string, Rational> {
     return new Map(this.terms);
   }
 
@@ -277,10 +277,7 @@ export class Polynomial {
     }
     for (const [key, coef] of this.terms) {
       const otherCoef = other.terms.get(key);
-      if (
-        otherCoef === undefined ||
-        Math.abs(coef - otherCoef) > 1e-12
-      ) {
+      if (!otherCoef || !coef.equals(otherCoef)) {
         return false;
       }
     }
@@ -301,56 +298,43 @@ export class Polynomial {
     return this.terms.size === 0 ? 0 : maxDeg;
   }
 
+  /**
+   * Terms in display order: higher degree first,
+   * then alphabetical, constant last.
+   */
+  sortedTerms(): [string, Rational][] {
+    return [...this.terms].sort(
+      (a, b) => compareMonomials(a[0], b[0])
+    );
+  }
+
+  /** Coefficient of the first term in display order. */
+  leadingCoefficient(): Rational {
+    const t = this.sortedTerms();
+    return t.length > 0 ? t[0][1] : Rational.ZERO;
+  }
+
   // ----- display -----
 
   toString(): string {
     if (this.terms.size === 0) return "0";
 
-    // Collect terms: variables first (sorted), then
-    // constant
-    const varTerms: [string, number][] = [];
-    let constant = 0;
-
-    for (const [key, coef] of this.terms) {
-      if (key === "") {
-        constant = coef;
-      } else {
-        varTerms.push([key, coef]);
-      }
-    }
-
-    // Sort: higher degree first, then alphabetical
-    varTerms.sort((a, b) => {
-      const degA = a[0] === ""
-        ? 0
-        : a[0].split("*").length;
-      const degB = b[0] === ""
-        ? 0
-        : b[0].split("*").length;
-      if (degA !== degB) return degB - degA;
-      return a[0].localeCompare(b[0]);
-    });
-
     const parts: string[] = [];
-
-    for (const [key, coef] of varTerms) {
+    for (const [key, coef] of this.sortedTerms()) {
+      if (key === "") {
+        parts.push(coef.toString());
+        continue;
+      }
       const varDisplay = formatMonomial(key);
-      if (coef === 1) {
+      if (coef.equals(Rational.ONE)) {
         parts.push(varDisplay);
-      } else if (coef === -1) {
+      } else if (coef.equals(Rational.ONE.negate())) {
         parts.push(`-${varDisplay}`);
+      } else if (coef.isInteger()) {
+        parts.push(`${coef}${varDisplay}`);
       } else {
-        parts.push(
-          `${formatNum(coef)}${varDisplay}`
-        );
+        parts.push(`(${coef})${varDisplay}`);
       }
-    }
-
-    if (constant !== 0 || parts.length === 0) {
-      if (parts.length === 0) {
-        return formatNum(constant);
-      }
-      parts.push(formatNum(constant));
     }
 
     // Join with +, then fix "+-" -> "-"
@@ -378,18 +362,20 @@ export class Polynomial {
   }
 }
 
-/** Format a number, dropping unnecessary decimals. */
-function formatNum(n: number): string {
-  if (Number.isInteger(n)) return n.toString();
-  try {
-    const f = mathjsFraction(n);
-    return mathjsFormat(
-      f, { fraction: "ratio" }
-    );
-  } catch {
-    const s = n.toPrecision(10);
-    return parseFloat(s).toString();
-  }
+function toRational(v: number | Rational): Rational {
+  return typeof v === "number" ? Rational.fromNumber(v) : v;
+}
+
+function monomialDegree(key: string): number {
+  return key === "" ? 0 : key.split("*").length;
+}
+
+/** Display order: degree desc, then alphabetical. */
+export function compareMonomials(a: string, b: string): number {
+  const da = monomialDegree(a);
+  const db = monomialDegree(b);
+  if (da !== db) return db - da;
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /**

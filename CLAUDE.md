@@ -37,6 +37,7 @@ Tests are located in `lib/*.test.ts` and `lib/__tests__/*.test.ts`. Run individu
 npx tsx lib/circuitCalculator.test.ts
 npx tsx lib/currentCalculator.test.ts
 npx tsx lib/__tests__/graphLayout.test.ts
+npx tsx lib/symbolic/__tests__/Rational.test.ts
 npx tsx lib/symbolic/__tests__/Polynomial.test.ts
 npx tsx lib/symbolic/__tests__/RationalExpr.test.ts
 npx tsx lib/symbolic/__tests__/gaussianElimination.test.ts
@@ -65,7 +66,9 @@ The main component manages all circuit state using React hooks:
 
 A unified symbolic algebra library handles both numeric and symbolic values:
 
-- **`Polynomial`**: Multivariate polynomial with `Map<monomialKey, coefficient>` representation. Supports add, subtract, multiply, scale, negate, parse.
+- **`Rational`**: Exact BigInt rational number. All coefficients use it, so
+  arithmetic never rounds (`0.1 + 0.2` is exactly `3/10`).
+- **`Polynomial`**: Multivariate polynomial with `Map<monomialKey, Rational>` representation. Supports add, subtract, multiply, scale, negate, parse.
 - **`RationalExpr`**: Rational expression (Polynomial/Polynomial). Unified replacement for the former `SymbolicResistance` and `SymbolicValue` classes. Supports add, subtract, multiply, divide, reciprocal, negate, with automatic simplification.
 - **`solveLinearSystem`**: Gaussian elimination with partial pivoting over `RationalExpr` entries. Works identically for numeric and symbolic systems.
 

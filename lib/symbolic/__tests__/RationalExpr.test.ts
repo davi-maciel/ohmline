@@ -322,6 +322,35 @@ assertEq(
   "0.5 displays as 1/2 with unit"
 );
 
+// --- exactness ---
+
+// Nearly-equal polynomials must not cancel
+{
+  const a = RationalExpr.parse("r+1");
+  const b = RationalExpr.parse("r+1")
+    .add(RationalExpr.parse("0.00000000001"));
+  const q = a.divide(b);
+  assert(
+    !q.equals(RationalExpr.ONE),
+    "(r+1)/(r+1+1e-11) is not 1"
+  );
+}
+assert(
+  !RationalExpr.parse("1e-13").equals(RationalExpr.ZERO),
+  "1e-13 != 0"
+);
+assert(
+  RationalExpr.parse("-Infinity").isInfinity(),
+  "parse '-Infinity' is open circuit"
+);
+assertEq(
+  RationalExpr.parse("0.1")
+    .add(RationalExpr.parse("0.2"))
+    .toDisplayString("\u03A9"),
+  "3/10\u03A9",
+  "0.1 + 0.2 displays 3/10"
+);
+
 // --- summary ---
 
 console.log(
