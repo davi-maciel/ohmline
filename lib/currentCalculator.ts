@@ -65,7 +65,10 @@ class UnionFind {
  *    potential) and interior (unknown).
  * 2. If <2 boundary nodes, return empty map.
  * 3. Union-Find for zero-R edges.
- * 4. Build conductance matrix for interior nodes.
+ * 4. Build conductance matrix for interior nodes
+ *    that connect to at least one boundary node
+ *    (floating ones have undetermined potentials
+ *    and would make the matrix singular).
  * 5. Solve for unknown potentials.
  * 6. Compute edge currents: I = (V_A - V_B) / R.
  */
@@ -167,11 +170,34 @@ export function calculateCurrents(
     }
   }
 
+  // Connectivity over the edges that enter the
+  // matrix, to find interior reps with no path to
+  // any boundary node
+  const conn = new UnionFind([...repSet]);
+  for (const edge of circuit.edges) {
+    const r = RationalExpr.parse(edge.resistance);
+    if (r.isZero() || r.isInfinity()) continue;
+    const rA = uf.find(edge.nodeA);
+    const rB = uf.find(edge.nodeB);
+    if (
+      shortCircuitGroups.has(rA)
+      || shortCircuitGroups.has(rB)
+    ) {
+      continue;
+    }
+    conn.union(rA, rB);
+  }
+  const groundedComps = new Set<string>();
+  for (const rep of repKnown.keys()) {
+    groundedComps.add(conn.find(rep));
+  }
+
   const interiorReps: string[] = [];
   for (const rep of repSet) {
     if (
       !repKnown.has(rep)
       && !shortCircuitGroups.has(rep)
+      && groundedComps.has(conn.find(rep))
     ) {
       interiorReps.push(rep);
     }

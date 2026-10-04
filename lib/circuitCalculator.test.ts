@@ -337,6 +337,71 @@ function assertSymEq(
   assert(r === null, "invalid node = null");
 }
 
+// --- Isolated node does not affect R_eq ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A" },
+      { id: "b", x: 1, y: 0, label: "B" },
+      { id: "c", x: 2, y: 0, label: "C" },
+    ],
+    edges: [
+      { id: "e1", nodeA: "a", nodeB: "b",
+        resistance: 10 },
+    ],
+  };
+  const r = calculateEquivalentResistance(
+    circuit, "a", "b"
+  );
+  assertNumEq(r, 10, "isolated node ignored");
+}
+
+// --- Separate component does not affect R_eq ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A" },
+      { id: "b", x: 1, y: 0, label: "B" },
+      { id: "c", x: 2, y: 0, label: "C" },
+      { id: "d", x: 3, y: 0, label: "D" },
+    ],
+    edges: [
+      { id: "e1", nodeA: "a", nodeB: "b",
+        resistance: "r" },
+      { id: "e2", nodeA: "c", nodeB: "d",
+        resistance: 5 },
+    ],
+  };
+  const r = calculateEquivalentResistance(
+    circuit, "a", "b"
+  );
+  assertSymEq(r, "r", "separate component ignored");
+}
+
+// --- Component reached only via infinite R ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A" },
+      { id: "b", x: 1, y: 0, label: "B" },
+      { id: "c", x: 2, y: 0, label: "C" },
+    ],
+    edges: [
+      { id: "e1", nodeA: "a", nodeB: "b",
+        resistance: 10 },
+      { id: "e2", nodeA: "b", nodeB: "c",
+        resistance: "Infinity" },
+    ],
+  };
+  const r = calculateEquivalentResistance(
+    circuit, "a", "b"
+  );
+  assertNumEq(r, 10, "node behind open circuit");
+}
+
 // --- summary ---
 
 console.log(
