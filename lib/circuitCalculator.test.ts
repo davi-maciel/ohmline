@@ -495,6 +495,29 @@ function assertSymEq(
   );
 }
 
+// --- Symbolic Wheatstone bridge stays compact ---
+
+{
+  const circuit: Circuit = {
+    nodes: ["a", "b", "c", "d"].map((id) => (
+      { id, x: 0, y: 0, label: id }
+    )),
+    edges: [
+      { id: "1", nodeA: "a", nodeB: "c", resistance: "p" },
+      { id: "2", nodeA: "a", nodeB: "d", resistance: "q" },
+      { id: "3", nodeA: "c", nodeB: "b", resistance: "u" },
+      { id: "4", nodeA: "d", nodeB: "b", resistance: "w" },
+      { id: "5", nodeA: "c", nodeB: "d", resistance: "g" },
+    ],
+  };
+  assertSymEq(
+    calculateEquivalentResistance(circuit, "a", "b"),
+    "(gpq+gpw+gqu+guw+pqu+pqw+puw+quw)"
+    + "/(gp+gq+gu+gw+pu+pw+qu+qw)",
+    "symbolic Wheatstone"
+  );
+}
+
 // --- summary ---
 
 console.log(

@@ -351,6 +351,45 @@ assertEq(
   "0.1 + 0.2 displays 3/10"
 );
 
+// --- multivariate simplification ---
+
+{
+  const rs = RationalExpr.parse("r+s");
+  const par = rs.reciprocal()
+    .add(rs.reciprocal())
+    .reciprocal();
+  assertEq(
+    par.toString(), "(r+s)/2",
+    "(r+s) || (r+s) = (r+s)/2"
+  );
+  const q = RationalExpr.parse("V")
+    .multiply(RationalExpr.parse("r"))
+    .divide(
+      RationalExpr.parse("2")
+        .multiply(RationalExpr.parse("r"))
+        .multiply(RationalExpr.parse("r"))
+    );
+  assertEq(q.toString(), "V/(2r)", "Vr/(2r^2) = V/(2r)");
+  const ab = RationalExpr.parse("a*b+a*c")
+    .divide(RationalExpr.parse("a*d"));
+  assertEq(ab.toString(), "(b+c)/d", "cancel a");
+}
+
+// --- fraction display ---
+
+assertEq(
+  RationalExpr.parse("r")
+    .divide(RationalExpr.parse("2s")).toString(),
+  "r/(2s)",
+  "monomial denominator is wrapped"
+);
+assertEq(
+  RationalExpr.parse("1")
+    .divide(RationalExpr.parse("r^2")).toString(),
+  "1/r^2",
+  "power denominator is not wrapped"
+);
+
 // --- summary ---
 
 console.log(

@@ -37,10 +37,12 @@ Tests are located in `lib/*.test.ts` and `lib/__tests__/*.test.ts`. Run individu
 npx tsx lib/circuitCalculator.test.ts
 npx tsx lib/currentCalculator.test.ts
 npx tsx lib/__tests__/graphLayout.test.ts
+npx tsx lib/__tests__/symbolicConsistency.test.ts
 npx tsx lib/symbolic/__tests__/Rational.test.ts
 npx tsx lib/symbolic/__tests__/Polynomial.test.ts
 npx tsx lib/symbolic/__tests__/RationalExpr.test.ts
 npx tsx lib/symbolic/__tests__/gaussianElimination.test.ts
+npx tsx lib/symbolic/__tests__/polyGcd.test.ts
 ```
 
 ## Architecture
@@ -70,6 +72,9 @@ A unified symbolic algebra library handles both numeric and symbolic values:
   arithmetic never rounds (`0.1 + 0.2` is exactly `3/10`).
 - **`Polynomial`**: Multivariate polynomial with `Map<monomialKey, Rational>` representation. Supports add, subtract, multiply, scale, negate, parse.
 - **`RationalExpr`**: Rational expression (Polynomial/Polynomial). Unified replacement for the former `SymbolicResistance` and `SymbolicValue` classes. Supports add, subtract, multiply, divide, reciprocal, negate, with automatic simplification.
+- **`polyGcd`**: Multivariate polynomial GCD (recursive primitive PRS) and
+  exact division. `RationalExpr` cancels the GCD on every operation, which
+  keeps symbolic results in lowest terms and stops expression blowup.
 - **`solveLinearSystem`**: Gaussian elimination with partial pivoting over `RationalExpr` entries. Works identically for numeric and symbolic systems.
 
 **`lib/circuitCalculator.ts`** — Equivalent resistance via conductance matrix + nodal analysis:
