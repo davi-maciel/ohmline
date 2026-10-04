@@ -343,6 +343,66 @@ function assertCurrentEq(
   }
 }
 
+// --- Isolated node does not block solving ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A",
+        potential: 10 },
+      { id: "m", x: 1, y: 0, label: "M" },
+      { id: "b", x: 2, y: 0, label: "B",
+        potential: 0 },
+      { id: "c", x: 3, y: 0, label: "C" },
+    ],
+    edges: [
+      { id: "e1", nodeA: "a", nodeB: "m",
+        resistance: 5 },
+      { id: "e2", nodeA: "m", nodeB: "b",
+        resistance: 5 },
+    ],
+  };
+  const currents = calculateCurrents(circuit);
+  assertCurrentEq(
+    currents, "e1", 1, "isolated node: e1"
+  );
+  assertCurrentEq(
+    currents, "e2", 1, "isolated node: e2"
+  );
+}
+
+// --- Floating component does not block solving ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A",
+        potential: 10 },
+      { id: "m", x: 1, y: 0, label: "M" },
+      { id: "b", x: 2, y: 0, label: "B",
+        potential: 0 },
+      { id: "c", x: 3, y: 0, label: "C" },
+      { id: "d", x: 4, y: 0, label: "D" },
+    ],
+    edges: [
+      { id: "e1", nodeA: "a", nodeB: "m",
+        resistance: 5 },
+      { id: "e2", nodeA: "m", nodeB: "b",
+        resistance: 5 },
+      { id: "e3", nodeA: "c", nodeB: "d",
+        resistance: 1 },
+    ],
+  };
+  const currents = calculateCurrents(circuit);
+  assertCurrentEq(
+    currents, "e1", 1, "floating component: e1"
+  );
+  assert(
+    !currents.has("e3"),
+    "floating component: e3 undetermined"
+  );
+}
+
 // --- summary ---
 
 console.log(
