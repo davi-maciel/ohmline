@@ -1,8 +1,5 @@
 import { Polynomial } from "./Polynomial";
-import {
-  fraction as mathjsFraction,
-  format as mathjsFormat,
-} from "mathjs";
+import { Rational, bigGcd } from "./Rational";
 
 /**
  * Rational expression: numerator / denominator where
@@ -52,28 +49,27 @@ export class RationalExpr {
     if (!isFinite(n)) {
       return RationalExpr.INFINITY;
     }
-    // Convert to integer fraction to preserve
-    // exact rational representation
-    const [num, den] = toIntFraction(n);
+    // Simplest rational that rounds to n, so
+    // 0.1 is exactly 1/10
     return new RationalExpr(
-      Polynomial.constant(num),
-      Polynomial.constant(den)
+      Polynomial.constant(Rational.fromNumber(n)),
+      Polynomial.constant(1)
     );
   }
 
   static fromString(s: string): RationalExpr {
     s = s.trim();
-    if (
-      s === "Infinity" ||
-      s === "∞" ||
-      s === "inf"
-    ) {
+    // Infinity of either sign is an open circuit
+    if (/^[+-]?(Infinity|∞|inf)$/.test(s)) {
       return RationalExpr.INFINITY;
     }
-    // Try as number first
-    const asNum = Number(s);
-    if (!isNaN(asNum) && s !== "") {
-      return RationalExpr.fromNumber(asNum);
+    // Decimal literal: parse exactly from the text
+    const asNum = Rational.fromDecimalString(s);
+    if (asNum) {
+      return new RationalExpr(
+        Polynomial.constant(asNum),
+        Polynomial.constant(1)
+      );
     }
     // Parse as polynomial expression
     return new RationalExpr(
@@ -180,10 +176,9 @@ export class RationalExpr {
         + "to number"
       );
     }
-    return (
-      this.num.constantValue()
-      / this.den.constantValue()
-    );
+    return this.num.constantTerm()
+      .divide(this.den.constantTerm())
+      .toNumber();
   }
 
   // ----- display -----
@@ -198,8 +193,7 @@ export class RationalExpr {
     // denominator is 1
     if (
       this.den.isConstant()
-      && Math.abs(this.den.constantValue() - 1)
-        < 1e-15
+      && this.den.constantTerm().equals(Rational.ONE)
     ) {
       return numStr;
     }
@@ -224,12 +218,6 @@ export class RationalExpr {
     if (this.isZero()) return `0${unit}`;
     if (this.isInfinity()) return "\u221E";
 
-    if (this.isNumeric()) {
-      const n = this.toNumber();
-      const formatted = formatNum(n);
-      return `${formatted}${unit}`;
-    }
-
     return `${this.toString()}${unit}`;
   }
 
@@ -243,23 +231,24 @@ export class RationalExpr {
   // ----- simplification -----
 
   /**
-   * Simplify numerator/denominator pair.
-   *  1. If denominator is zero => keep as-is
-   *     (infinity).
-   *  2. If numerator is zero => (0, 1).
-   *  3. If both are numeric constants => reduce
-   *     fraction.
-   *  4. Normalize sign: ensure leading coefficient
-   *     of denominator is positive.
-   *  5. Cancel scalar multiples.
-   *  6. For single-variable polynomials, compute
+   * Canonical form of numerator/denominator:
+   *  1. Zero denominator => infinity (1/0), or 0
+   *     for 0/0.
+   *  2. Zero numerator => 0/1.
+   *  3. Cancel scalar multiples (n = k*d => k/1).
+   *  4. For single-variable polynomials, cancel the
    *     univariate GCD.
+   *  5. Clear fractional coefficients and divide out
+   *     the common integer content, so both sides
+   *     have coprime integer coefficients.
+   *  6. Make the denominator's leading coefficient
+   *     positive.
+   * All steps are exact (BigInt rationals).
    */
   private static simplify(
     num: Polynomial,
     den: Polynomial
   ): [Polynomial, Polynomial] {
-    // Case 1: denominator is zero (infinity)
     if (den.isZero()) {
       if (num.isZero()) {
         // 0/0 => treat as 0
@@ -271,379 +260,186 @@ export class RationalExpr {
       return [Polynomial.constant(1), den];
     }
 
-    // Case 2: numerator is zero
     if (num.isZero()) {
       return [num, Polynomial.constant(1)];
     }
 
-    // Case 3: both numeric constants
-    if (num.isConstant() && den.isConstant()) {
-      const nv = num.constantValue();
-      const dv = den.constantValue();
-      const g = gcd(Math.abs(nv), Math.abs(dv));
-      const sign = dv < 0 ? -1 : 1;
-      return [
-        Polynomial.constant((nv / g) * sign),
-        Polynomial.constant((dv / g) * sign),
-      ];
-    }
-
-    // Case 4: normalize sign of denominator
     let n = num;
     let d = den;
-    const denLead = leadingCoef(d);
-    if (denLead < 0) {
+
+    const ratio = scalarRatio(n, d);
+    if (ratio !== null) {
+      n = Polynomial.constant(ratio);
+      d = Polynomial.constant(1);
+    } else {
+      const vars = new Set([
+        ...n.getVariables(),
+        ...d.getVariables(),
+      ]);
+      if (vars.size === 1) {
+        [n, d] = cancelUnivariateGCD(
+          n, d, [...vars][0]
+        );
+      }
+    }
+
+    [n, d] = normalizeCoefficients(n, d);
+
+    if (d.leadingCoefficient().isNegative()) {
       n = n.negate();
       d = d.negate();
     }
-
-    // Case 5: check if polynomials are scalar
-    // multiples of each other
-    const ratio = scalarRatio(n, d);
-    if (ratio !== null) {
-      // n = ratio * d, so n/d = ratio
-      return [
-        Polynomial.constant(ratio),
-        Polynomial.constant(1),
-      ];
-    }
-
-    // Case 5b: factor out numeric GCD from all
-    // coefficients of numerator and denominator
-    const nCoefGcd = coefficientGcd(n);
-    const dCoefGcd = coefficientGcd(d);
-    if (nCoefGcd > 1e-15 && dCoefGcd > 1e-15) {
-      const commonG = gcd(nCoefGcd, dCoefGcd);
-      if (commonG > 1e-15 && commonG !== 1) {
-        n = n.scale(1 / commonG);
-        d = d.scale(1 / commonG);
-      }
-    }
-
-    // Case 6: single-variable polynomial GCD
-    const nVars = n.getVariables();
-    const dVars = d.getVariables();
-    if (
-      nVars.size <= 1
-      && dVars.size <= 1
-    ) {
-      const allVars = new Set([
-        ...nVars,
-        ...dVars,
-      ]);
-      if (allVars.size <= 1) {
-        const varName =
-          allVars.size === 1
-            ? [...allVars][0]
-            : undefined;
-        if (varName) {
-          const [rn, rd] = cancelUnivariateGCD(
-            n,
-            d,
-            varName
-          );
-          n = rn;
-          d = rd;
-          // Re-normalize sign after GCD
-          const dl = leadingCoef(d);
-          if (dl < 0) {
-            n = n.negate();
-            d = d.negate();
-          }
-        }
-      }
-    }
-
     return [n, d];
   }
 }
 
 // ----- helper functions -----
 
-function formatNum(n: number): string {
-  if (!isFinite(n)) return "Infinity";
-  if (Number.isInteger(n)) return n.toString();
-  // Display non-integers as simplified fractions
-  try {
-    const f = mathjsFraction(n);
-    return mathjsFormat(f, { fraction: "ratio" });
-  } catch {
-    const s = n.toPrecision(10);
-    return parseFloat(s).toString();
-  }
-}
-
 function needsParens(s: string): boolean {
   // Needs parens if contains + or - (not at start)
   return /[^e][+-]/.test(s);
 }
 
+function bigLcm(a: bigint, b: bigint): bigint {
+  return (a / bigGcd(a, b)) * b;
+}
+
 /**
- * Convert a decimal number to an integer fraction
- * [numerator, denominator] in lowest terms.
- * Uses mathjs for accurate conversion.
+ * Scale n and d by the same rational so all
+ * coefficients are integers with no common factor.
  */
-function toIntFraction(
-  n: number
-): [number, number] {
-  if (Number.isInteger(n)) return [n, 1];
-  if (n === 0) return [0, 1];
-  try {
-    const f = mathjsFraction(n);
-    const num = Number(f.n) * (f.s < 0 ? -1 : 1);
-    const den = Number(f.d);
-    return [num, den];
-  } catch {
-    return [n, 1];
+function normalizeCoefficients(
+  n: Polynomial,
+  d: Polynomial
+): [Polynomial, Polynomial] {
+  const coefs = [
+    ...n.getTerms().values(),
+    ...d.getTerms().values(),
+  ];
+  let lcm = BigInt(1);
+  for (const c of coefs) lcm = bigLcm(lcm, c.den);
+  let g = BigInt(0);
+  for (const c of coefs) {
+    g = bigGcd(g, (c.num * lcm) / c.den);
   }
-}
-
-/** GCD of two positive numbers (Euclidean). */
-function gcd(a: number, b: number): number {
-  a = Math.abs(a);
-  b = Math.abs(b);
-  if (a < 1e-15) return b;
-  if (b < 1e-15) return a;
-  // Convert both to integer fractions, then
-  // compute GCD of the resulting integers.
-  const [aN, aD] = toIntFraction(a);
-  const [bN, bD] = toIntFraction(b);
-  // gcd(a/b, c/d) = gcd(a,c) / lcm(b,d)
-  const gN = intGcd(
-    Math.abs(aN), Math.abs(bN)
-  );
-  const gD = intLcm(aD, bD);
-  return gN / gD;
-}
-
-function intGcd(a: number, b: number): number {
-  a = Math.round(Math.abs(a));
-  b = Math.round(Math.abs(b));
-  while (b !== 0) {
-    const t = b;
-    b = a % b;
-    a = t;
-  }
-  return a;
-}
-
-function intLcm(a: number, b: number): number {
-  if (a === 0 || b === 0) return 0;
-  return Math.abs(a * b) / intGcd(a, b);
+  const factor = Rational.of(lcm, g);
+  if (factor.equals(Rational.ONE)) return [n, d];
+  return [n.scale(factor), d.scale(factor)];
 }
 
 /**
- * Compute GCD of all coefficients in a polynomial.
- */
-function coefficientGcd(p: Polynomial): number {
-  const terms = p.getTerms();
-  let result = 0;
-  for (const [, coef] of terms) {
-    result = gcd(result, Math.abs(coef));
-  }
-  return result;
-}
-
-/** Get the leading coefficient of a polynomial. */
-function leadingCoef(p: Polynomial): number {
-  const terms = p.getTerms();
-  // Pick first non-zero coefficient
-  for (const [, coef] of terms) {
-    return coef;
-  }
-  return 0;
-}
-
-/**
- * Check if a = ratio * b for some scalar ratio.
- * Returns ratio or null.
+ * If a = k * b for a rational k, return k;
+ * otherwise null.
  */
 function scalarRatio(
   a: Polynomial,
   b: Polynomial
-): number | null {
+): Rational | null {
   const aTerms = a.getTerms();
   const bTerms = b.getTerms();
   if (aTerms.size !== bTerms.size) return null;
   if (aTerms.size === 0) return null;
 
-  let ratio: number | null = null;
+  let ratio: Rational | null = null;
   for (const [key, aCoef] of aTerms) {
     const bCoef = bTerms.get(key);
-    if (bCoef === undefined) return null;
-    const r = aCoef / bCoef;
+    if (!bCoef) return null;
+    const r = aCoef.divide(bCoef);
     if (ratio === null) {
       ratio = r;
-    } else if (Math.abs(r - ratio) > 1e-10) {
+    } else if (!r.equals(ratio)) {
       return null;
     }
   }
   return ratio;
 }
 
-/**
- * Convert a polynomial to a univariate coefficient
- * array in ascending degree order.
- * e.g. 3r^2 + 2r + 1 => [1, 2, 3]
- */
+// Univariate helpers operate on exact coefficient
+// arrays in ascending degree order:
+// 3r^2 + 2r + 1 => [1, 2, 3]
+
 function toUnivariateCoefs(
   p: Polynomial,
   varName: string
-): number[] {
-  const terms = p.getTerms();
-  let maxDeg = 0;
-  const coefMap = new Map<number, number>();
-
-  for (const [key, coef] of terms) {
-    let deg = 0;
-    if (key !== "") {
-      const parts = key.split("*");
-      for (const part of parts) {
-        if (part === varName) deg++;
-      }
+): Rational[] {
+  const result: Rational[] = [];
+  for (const [key, coef] of p.getTerms()) {
+    const deg = key === ""
+      ? 0
+      : key.split("*").filter((v) => v === varName)
+        .length;
+    while (result.length <= deg) {
+      result.push(Rational.ZERO);
     }
-    const cur = coefMap.get(deg) || 0;
-    coefMap.set(deg, cur + coef);
-    if (deg > maxDeg) maxDeg = deg;
-  }
-
-  const result: number[] = new Array(maxDeg + 1)
-    .fill(0);
-  for (const [deg, coef] of coefMap) {
-    result[deg] = coef;
+    result[deg] = result[deg].add(coef);
   }
   return result;
 }
 
-/**
- * Convert univariate coefficient array back to
- * Polynomial.
- */
 function fromUnivariateCoefs(
-  coefs: number[],
+  coefs: Rational[],
   varName: string
 ): Polynomial {
   let result = Polynomial.zero();
   const varPoly = Polynomial.variable(varName);
   let power = Polynomial.constant(1);
   for (let i = 0; i < coefs.length; i++) {
-    if (Math.abs(coefs[i]) > 1e-15) {
+    if (!coefs[i].isZero()) {
       result = result.add(power.scale(coefs[i]));
     }
-    if (i < coefs.length - 1) {
-      power = power.multiply(varPoly);
-    }
+    power = power.multiply(varPoly);
   }
   return result;
 }
 
-/**
- * Univariate polynomial GCD via Euclidean algorithm.
- * Operates on coefficient arrays in ascending order.
- */
-function univariateGCD(
-  a: number[],
-  b: number[]
-): number[] {
-  // Trim trailing zeros
-  a = trimTrailingZeros(a);
-  b = trimTrailingZeros(b);
-
-  if (a.length === 0) return b;
-  if (b.length === 0) return a;
-
-  // Ensure a has >= degree than b
-  if (a.length < b.length) {
-    [a, b] = [b, a];
-  }
-
-  while (b.length > 0) {
-    const remainder = polyRemainder(a, b);
-    a = b;
-    b = trimTrailingZeros(remainder);
-  }
-
-  // Normalize: make leading coefficient 1
-  if (a.length > 0) {
-    const lc = a[a.length - 1];
-    if (Math.abs(lc) > 1e-15) {
-      a = a.map((c) => c / lc);
-    }
-  }
-
-  return a;
-}
-
-function trimTrailingZeros(
-  a: number[]
-): number[] {
+function trim(a: Rational[]): Rational[] {
   let i = a.length - 1;
-  while (i >= 0 && Math.abs(a[i]) < 1e-12) {
-    i--;
-  }
+  while (i >= 0 && a[i].isZero()) i--;
   return a.slice(0, i + 1);
 }
 
-function polyRemainder(
-  a: number[],
-  b: number[]
-): number[] {
-  const result = [...a];
-  const bLead = b[b.length - 1];
-  while (
-    result.length >= b.length
-    && result.length > 0
-  ) {
-    const leadIdx = result.length - 1;
-    if (Math.abs(result[leadIdx]) < 1e-12) {
-      result.pop();
-      continue;
-    }
-    const factor = result[leadIdx] / bLead;
-    const shift = result.length - b.length;
-    for (let i = 0; i < b.length; i++) {
-      result[i + shift] -= factor * b[i];
-    }
-    result.pop();
-  }
-  return result;
-}
-
-function polyDivide(
-  a: number[],
-  b: number[]
-): number[] {
-  if (b.length === 0) return a;
-  a = trimTrailingZeros(a);
-  b = trimTrailingZeros(b);
-  if (a.length < b.length) return [0];
-
-  const bLead = b[b.length - 1];
-  const degA = a.length - 1;
-  const degB = b.length - 1;
-  const quotient = new Array(degA - degB + 1)
-    .fill(0);
+/** Quotient and remainder of a / b (b non-zero). */
+function polyDivMod(
+  a: Rational[],
+  b: Rational[]
+): [Rational[], Rational[]] {
+  a = trim(a);
+  b = trim(b);
   const rem = [...a];
-
-  for (
-    let i = degA - degB;
-    i >= 0;
-    i--
-  ) {
-    const coef = rem[i + degB] / bLead;
-    quotient[i] = coef;
-    for (let j = 0; j < b.length; j++) {
-      rem[i + j] -= coef * b[j];
+  const degB = b.length - 1;
+  const lead = b[degB];
+  const quot: Rational[] = [];
+  for (let i = a.length - 1 - degB; i >= 0; i--) {
+    const c = rem[i + degB].divide(lead);
+    quot[i] = c;
+    if (c.isZero()) continue;
+    for (let j = 0; j <= degB; j++) {
+      rem[i + j] = rem[i + j].subtract(c.multiply(b[j]));
     }
   }
-
-  return quotient;
+  for (let i = 0; i < quot.length; i++) {
+    if (!quot[i]) quot[i] = Rational.ZERO;
+  }
+  return [trim(quot), trim(rem.slice(0, degB))];
 }
 
-/**
- * Cancel common univariate GCD factor from
- * numerator and denominator.
- */
+/** Monic GCD via the Euclidean algorithm. */
+function univariateGCD(
+  a: Rational[],
+  b: Rational[]
+): Rational[] {
+  a = trim(a);
+  b = trim(b);
+  while (b.length > 0) {
+    const [, r] = polyDivMod(a, b);
+    a = b;
+    b = r;
+  }
+  if (a.length === 0) return a;
+  const lead = a[a.length - 1];
+  return a.map((c) => c.divide(lead));
+}
+
 function cancelUnivariateGCD(
   num: Polynomial,
   den: Polynomial,
@@ -651,25 +447,12 @@ function cancelUnivariateGCD(
 ): [Polynomial, Polynomial] {
   const nCoefs = toUnivariateCoefs(num, varName);
   const dCoefs = toUnivariateCoefs(den, varName);
-
   const g = univariateGCD(nCoefs, dCoefs);
-  if (g.length <= 1) {
-    // GCD is a constant; nothing useful to cancel
-    // beyond scalar (already handled).
-    return [num, den];
-  }
-
-  const newN = polyDivide(nCoefs, g);
-  const newD = polyDivide(dCoefs, g);
-
+  if (g.length <= 1) return [num, den];
+  const [newN] = polyDivMod(nCoefs, g);
+  const [newD] = polyDivMod(dCoefs, g);
   return [
-    fromUnivariateCoefs(
-      trimTrailingZeros(newN),
-      varName
-    ),
-    fromUnivariateCoefs(
-      trimTrailingZeros(newD),
-      varName
-    ),
+    fromUnivariateCoefs(newN, varName),
+    fromUnivariateCoefs(newD, varName),
   ];
 }
