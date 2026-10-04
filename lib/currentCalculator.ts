@@ -1,4 +1,4 @@
-import type { Circuit } from "@/types/circuit";
+import type { Circuit, Edge } from "@/types/circuit";
 import {
   RationalExpr,
   solveLinearSystem,
@@ -55,42 +55,65 @@ class UnionFind {
   connected(a: string, b: string): boolean {
     return this.find(a) === this.find(b);
   }
+
+  /** All ids whose root is `root`. */
+  members(root: string): string[] {
+    return [...this.parent.keys()].filter(
+      (id) => this.find(id) === root
+    );
+  }
 }
 
 /**
  * Calculate currents in the circuit using KCL
- * nodal analysis.
+ * nodal analysis. The current for an edge flows
+ * from nodeA to nodeB.
  *
  * Algorithm:
- * 1. Separate nodes into boundary (known
- *    potential) and interior (unknown).
- * 2. If <2 boundary nodes, return empty map.
- * 3. Union-Find for zero-R edges.
- * 4. Build conductance matrix for interior nodes
- *    that connect to at least one boundary node
- *    (floating ones have undetermined potentials
- *    and would make the matrix singular).
- * 5. Solve for unknown potentials.
- * 6. Compute edge currents: I = (V_A - V_B) / R.
+ * 1. Parse values; any invalid value => no results.
+ *    Edges that reference missing nodes are ignored.
+ * 2. Nodes with a known potential are boundary
+ *    nodes (ideal sources). Need at least 2.
+ * 3. Merge nodes joined by zero-resistance wires.
+ *    A merged group holding two different known
+ *    potentials is a short between sources: its
+ *    wires carry infinite current and its
+ *    potential is undefined.
+ * 4. Split the circuit into pieces connected by
+ *    finite, non-zero resistances and solve each
+ *    piece separately by nodal analysis. A piece
+ *    with no boundary node gets an arbitrary
+ *    reference potential (its currents are still
+ *    well defined). A piece containing a short
+ *    between sources, or with a singular system,
+ *    is left undetermined.
+ * 5. Resistor currents: I = (V_A - V_B) / R.
+ *    Open circuits (infinite R) carry 0.
+ * 6. Wire currents follow from KCL: a wire that is
+ *    a bridge of its group carries the net current
+ *    entering the side without a source. Wires in
+ *    a loop of wires, or between two sources at the
+ *    same potential, are undetermined.
+ *
+ * Edges whose current cannot be determined are
+ * left out of the returned map.
  */
 export function calculateCurrents(
   circuit: Circuit
 ): Map<string, RationalExpr> {
   const result = new Map<string, RationalExpr>();
 
-  if (circuit.edges.length === 0) {
-    return result;
-  }
+  const nodeIds = new Set(circuit.nodes.map((n) => n.id));
+  const edges = circuit.edges.filter(
+    (e) => nodeIds.has(e.nodeA) && nodeIds.has(e.nodeB)
+  );
+  if (edges.length === 0) return result;
 
-  // Any unparseable value => no results
+  // Step 1: any unparseable value => no results
   const resistance = parseResistances(circuit);
   if (!resistance) return result;
 
-  // Parse node potentials; separate boundary
-  // (known) from interior (unknown)
-  const knownPotentials = new Map<
-    string, RationalExpr
-  >();
+  const known = new Map<string, RationalExpr>();
   for (const node of circuit.nodes) {
     if (
       node.potential !== undefined
@@ -98,238 +121,255 @@ export function calculateCurrents(
     ) {
       const pot = RationalExpr.tryParse(node.potential);
       if (!pot) return result;
-      knownPotentials.set(node.id, pot);
+      known.set(node.id, pot);
     }
   }
 
-  // Need at least 2 boundary nodes
-  if (knownPotentials.size < 2) {
-    return result;
+  // Step 2: need at least 2 boundary nodes
+  if (known.size < 2) return result;
+
+  const isWire = (e: Edge) => resistance.get(e)!.isZero();
+  const isOpen = (e: Edge) =>
+    resistance.get(e)!.isInfinity();
+  const isResistor = (e: Edge) => !isWire(e) && !isOpen(e);
+
+  // Step 3: merge wire-connected nodes
+  const uf = new UnionFind([...nodeIds]);
+  for (const e of edges) {
+    if (isWire(e)) uf.union(e.nodeA, e.nodeB);
   }
 
-  // Union-Find for zero-resistance edges
-  const allNodeIds = circuit.nodes.map(
-    (n) => n.id
+  const groupKnown = new Map<string, RationalExpr>();
+  const shorted = new Set<string>();
+  for (const [id, pot] of known) {
+    const g = uf.find(id);
+    const existing = groupKnown.get(g);
+    if (existing && !existing.equals(pot)) {
+      shorted.add(g);
+    } else if (!existing) {
+      groupKnown.set(g, pot);
+    }
+  }
+  for (const g of shorted) groupKnown.delete(g);
+
+  // Step 4: pieces connected by resistors
+  const groups = new Set([...nodeIds].map((id) => uf.find(id)));
+  const conn = new UnionFind([...groups]);
+  for (const e of edges) {
+    if (isResistor(e)) {
+      conn.union(uf.find(e.nodeA), uf.find(e.nodeB));
+    }
+  }
+  const pieces = new Map<string, string[]>();
+  for (const g of groups) {
+    const p = conn.find(g);
+    if (!pieces.has(p)) pieces.set(p, []);
+    pieces.get(p)!.push(g);
+  }
+
+  const potential = new Map<string, RationalExpr>();
+  for (const piece of pieces.values()) {
+    if (piece.some((g) => shorted.has(g))) continue;
+    const fixed = new Map<string, RationalExpr>();
+    for (const g of piece) {
+      const pot = groupKnown.get(g);
+      if (pot) fixed.set(g, pot);
+    }
+    if (fixed.size === 0) {
+      // Floating piece: any reference works
+      fixed.set(piece[0], RationalExpr.ZERO);
+    }
+    const solved = solvePiece(
+      piece, fixed, edges, resistance, uf
+    );
+    if (!solved) continue;
+    for (const [g, v] of solved) potential.set(g, v);
+  }
+
+  // Step 5: resistor and open-circuit currents
+  for (const e of edges) {
+    if (isOpen(e)) {
+      result.set(e.id, RationalExpr.ZERO);
+    } else if (isResistor(e)) {
+      const vA = potential.get(uf.find(e.nodeA));
+      const vB = potential.get(uf.find(e.nodeB));
+      if (vA && vB) {
+        result.set(
+          e.id,
+          vA.subtract(vB).divide(resistance.get(e)!)
+        );
+      }
+    }
+  }
+
+  // Step 6: wire currents via KCL
+  setWireCurrents(
+    edges, isWire, isResistor, known, shorted, uf, result
   );
-  const uf = new UnionFind(allNodeIds);
 
-  for (const edge of circuit.edges) {
-    const r = resistance.get(edge)!;
-    if (r.isZero()) {
-      uf.union(edge.nodeA, edge.nodeB);
-    }
-  }
+  return result;
+}
 
-  // Check for short circuits: two merged nodes
-  // with different known potentials
-  const shortCircuitGroups = new Set<string>();
-  const groupPotential = new Map<
-    string, RationalExpr
-  >();
-  for (const [nodeId, pot] of knownPotentials) {
-    const rep = uf.find(nodeId);
-    const existing = groupPotential.get(rep);
-    if (existing) {
-      if (!existing.equals(pot)) {
-        shortCircuitGroups.add(rep);
-      }
-    } else {
-      groupPotential.set(rep, pot);
-    }
-  }
+/**
+ * Nodal analysis on one piece. `fixed` maps groups
+ * with known potential; returns potentials for all
+ * groups in the piece, or null if singular.
+ */
+function solvePiece(
+  piece: string[],
+  fixed: Map<string, RationalExpr>,
+  edges: Edge[],
+  resistance: Map<Edge, RationalExpr>,
+  uf: UnionFind
+): Map<string, RationalExpr> | null {
+  const inPiece = new Set(piece);
+  const unknown = piece.filter((g) => !fixed.has(g));
+  const index = new Map<string, number>();
+  unknown.forEach((g, i) => index.set(g, i));
+  const m = unknown.length;
 
-  // For short-circuit edges, set INFINITY current
-  if (shortCircuitGroups.size > 0) {
-    for (const edge of circuit.edges) {
-      const r = resistance.get(edge)!;
-      if (r.isZero()) {
-        const rep = uf.find(edge.nodeA);
-        if (shortCircuitGroups.has(rep)) {
-          result.set(
-            edge.id,
-            RationalExpr.INFINITY
-          );
-        }
-      }
-    }
-  }
-
-  // Build representative node sets
-  const repSet = new Set<string>();
-  for (const id of allNodeIds) {
-    repSet.add(uf.find(id));
-  }
-
-  // Determine which reps are boundary (known
-  // potential) and which are interior
-  const repKnown = new Map<
-    string, RationalExpr
-  >();
-  for (const [nodeId, pot] of knownPotentials) {
-    const rep = uf.find(nodeId);
-    if (!shortCircuitGroups.has(rep)) {
-      repKnown.set(rep, pot);
-    }
-  }
-
-  // Connectivity over the edges that enter the
-  // matrix, to find interior reps with no path to
-  // any boundary node
-  const conn = new UnionFind([...repSet]);
-  for (const edge of circuit.edges) {
-    const r = resistance.get(edge)!;
-    if (r.isZero() || r.isInfinity()) continue;
-    const rA = uf.find(edge.nodeA);
-    const rB = uf.find(edge.nodeB);
-    if (
-      shortCircuitGroups.has(rA)
-      || shortCircuitGroups.has(rB)
-    ) {
-      continue;
-    }
-    conn.union(rA, rB);
-  }
-  const groundedComps = new Set<string>();
-  for (const rep of repKnown.keys()) {
-    groundedComps.add(conn.find(rep));
-  }
-
-  const interiorReps: string[] = [];
-  for (const rep of repSet) {
-    if (
-      !repKnown.has(rep)
-      && !shortCircuitGroups.has(rep)
-      && groundedComps.has(conn.find(rep))
-    ) {
-      interiorReps.push(rep);
-    }
-  }
-
-  const m = interiorReps.length;
-
-  // Map interior rep -> matrix index
-  const indexMap = new Map<string, number>();
-  for (let i = 0; i < m; i++) {
-    indexMap.set(interiorReps[i], i);
-  }
-
-  // Build conductance matrix Y (MxM) and RHS b
   const Y: RationalExpr[][] = [];
   const b: RationalExpr[] = [];
   for (let i = 0; i < m; i++) {
-    Y.push([]);
-    for (let j = 0; j < m; j++) {
-      Y[i].push(RationalExpr.ZERO);
-    }
+    Y.push(new Array(m).fill(RationalExpr.ZERO));
     b.push(RationalExpr.ZERO);
   }
 
-  for (const edge of circuit.edges) {
-    const r = resistance.get(edge)!;
+  for (const e of edges) {
+    const r = resistance.get(e)!;
     if (r.isZero() || r.isInfinity()) continue;
-
+    const gA = uf.find(e.nodeA);
+    const gB = uf.find(e.nodeB);
+    if (gA === gB || !inPiece.has(gA)) continue;
     const G = r.reciprocal();
-    const rA = uf.find(edge.nodeA);
-    const rB = uf.find(edge.nodeB);
-    if (rA === rB) continue;
-
-    const iA = indexMap.get(rA);
-    const iB = indexMap.get(rB);
-    const potA = repKnown.get(rA);
-    const potB = repKnown.get(rB);
-
-    if (
-      iA !== undefined
-      && iB !== undefined
-    ) {
-      // Both interior
+    const iA = index.get(gA);
+    const iB = index.get(gB);
+    if (iA !== undefined) {
       Y[iA][iA] = Y[iA][iA].add(G);
-      Y[iB][iB] = Y[iB][iB].add(G);
-      Y[iA][iB] = Y[iA][iB].subtract(G);
-      Y[iB][iA] = Y[iB][iA].subtract(G);
-    } else if (
-      iA !== undefined
-      && potB !== undefined
-    ) {
-      // A interior, B boundary
-      Y[iA][iA] = Y[iA][iA].add(G);
-      b[iA] = b[iA].add(G.multiply(potB));
-    } else if (
-      iB !== undefined
-      && potA !== undefined
-    ) {
-      // B interior, A boundary
-      Y[iB][iB] = Y[iB][iB].add(G);
-      b[iB] = b[iB].add(G.multiply(potA));
-    }
-    // Both boundary: no unknowns, skip
-  }
-
-  // Solve for interior potentials
-  let interiorPotentials: RationalExpr[] | null =
-    null;
-  if (m > 0) {
-    interiorPotentials = solveLinearSystem(Y, b);
-  }
-
-  // Build full potential map (rep -> potential)
-  const allPotentials = new Map<
-    string, RationalExpr
-  >();
-  for (const [rep, pot] of repKnown) {
-    allPotentials.set(rep, pot);
-  }
-  if (interiorPotentials) {
-    for (let i = 0; i < m; i++) {
-      allPotentials.set(
-        interiorReps[i],
-        interiorPotentials[i]
-      );
-    }
-  }
-
-  // Compute edge currents: I = (V_A - V_B) / R
-  for (const edge of circuit.edges) {
-    // Skip if already set (short circuit)
-    if (result.has(edge.id)) continue;
-
-    const r = resistance.get(edge)!;
-
-    if (r.isInfinity()) {
-      result.set(edge.id, RationalExpr.ZERO);
-      continue;
-    }
-
-    const rA = uf.find(edge.nodeA);
-    const rB = uf.find(edge.nodeB);
-
-    const potA = allPotentials.get(rA);
-    const potB = allPotentials.get(rB);
-
-    if (!potA || !potB) {
-      // Cannot determine current
-      continue;
-    }
-
-    if (r.isZero()) {
-      // Zero resistance with same potential
-      const diff = potA.subtract(potB);
-      if (diff.isZero()) {
-        result.set(
-          edge.id, RationalExpr.ZERO
-        );
+      if (iB !== undefined) {
+        Y[iA][iB] = Y[iA][iB].subtract(G);
       } else {
-        result.set(
-          edge.id, RationalExpr.INFINITY
-        );
+        b[iA] = b[iA].add(G.multiply(fixed.get(gB)!));
+      }
+    }
+    if (iB !== undefined) {
+      Y[iB][iB] = Y[iB][iB].add(G);
+      if (iA !== undefined) {
+        Y[iB][iA] = Y[iB][iA].subtract(G);
+      } else {
+        b[iB] = b[iB].add(G.multiply(fixed.get(gA)!));
+      }
+    }
+  }
+
+  const out = new Map(fixed);
+  if (m > 0) {
+    const V = solveLinearSystem(Y, b);
+    if (!V) return null;
+    unknown.forEach((g, i) => out.set(g, V[i]));
+  }
+  return out;
+}
+
+/**
+ * Fill in wire (zero-resistance) currents from KCL,
+ * using the resistor currents already in `result`.
+ */
+function setWireCurrents(
+  edges: Edge[],
+  isWire: (e: Edge) => boolean,
+  isResistor: (e: Edge) => boolean,
+  known: Map<string, RationalExpr>,
+  shorted: Set<string>,
+  uf: UnionFind,
+  result: Map<string, RationalExpr>
+): void {
+  const wires = edges.filter(isWire);
+  if (wires.length === 0) return;
+
+  // Net current entering each node through
+  // resistors; null if any of them is unknown
+  const inflow = new Map<string, RationalExpr | null>();
+  const addInflow = (id: string, i: RationalExpr | null) => {
+    const prev = inflow.get(id);
+    if (prev === null) return;
+    if (i === null) {
+      inflow.set(id, null);
+    } else {
+      inflow.set(id, (prev ?? RationalExpr.ZERO).add(i));
+    }
+  };
+  for (const e of edges) {
+    if (!isResistor(e) || e.nodeA === e.nodeB) continue;
+    const i = result.get(e.id) ?? null;
+    addInflow(e.nodeB, i);
+    addInflow(e.nodeA, i ? i.negate() : null);
+  }
+
+  for (const w of wires) {
+    if (w.nodeA === w.nodeB) continue; // wire loop
+
+    // Nodes reachable from nodeA through the other
+    // wires: if nodeB is among them, w is in a loop
+    const side = new Set([w.nodeA]);
+    const stack = [w.nodeA];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      for (const o of wires) {
+        if (o === w) continue;
+        const next = o.nodeA === cur
+          ? o.nodeB
+          : o.nodeB === cur ? o.nodeA : null;
+        if (next !== null && !side.has(next)) {
+          side.add(next);
+          stack.push(next);
+        }
+      }
+    }
+    if (side.has(w.nodeB)) continue; // wire loop
+
+    const group = uf.find(w.nodeA);
+    const other = [...uf.members(group)]
+      .filter((id) => !side.has(id));
+
+    if (shorted.has(group)) {
+      // Infinite current unless one side has no
+      // source (a dangling wire)
+      const sideHasSource = [...side].some(
+        (id) => known.has(id)
+      );
+      const otherHasSource = other.some(
+        (id) => known.has(id)
+      );
+      if (sideHasSource && otherHasSource) {
+        result.set(w.id, RationalExpr.INFINITY);
       }
       continue;
     }
 
-    // I = (V_A - V_B) / R
-    const current = potA.subtract(potB).divide(r);
-    result.set(edge.id, current);
+    // KCL on the side without a source: everything
+    // entering it must leave through w
+    const sum = (ids: Iterable<string>) => {
+      let total = RationalExpr.ZERO;
+      for (const id of ids) {
+        if (!inflow.has(id)) continue;
+        const i = inflow.get(id);
+        if (i === null || i === undefined) return null;
+        total = total.add(i);
+      }
+      return total;
+    };
+    const hasSource = (ids: Iterable<string>) => {
+      for (const id of ids) if (known.has(id)) return true;
+      return false;
+    };
+    let current: RationalExpr | null = null;
+    if (!hasSource(side)) {
+      current = sum(side);
+    } else if (!hasSource(other)) {
+      const s = sum(other);
+      current = s ? s.negate() : null;
+    }
+    if (current) result.set(w.id, current);
   }
-
-  return result;
 }

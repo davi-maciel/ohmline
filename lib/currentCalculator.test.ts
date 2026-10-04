@@ -397,9 +397,9 @@ function assertCurrentEq(
   assertCurrentEq(
     currents, "e1", 1, "floating component: e1"
   );
-  assert(
-    !currents.has("e3"),
-    "floating component: e3 undetermined"
+  assertCurrentEq(
+    currents, "e3", 0,
+    "floating component carries no current"
   );
 }
 
@@ -428,6 +428,188 @@ function assertCurrentEq(
     calculateCurrents(base("5", "10")), "e1", 2,
     "valid values still work"
   );
+}
+
+// --- Wire in series carries the series current ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A", potential: 10 },
+      { id: "m", x: 1, y: 0, label: "M" },
+      { id: "n", x: 2, y: 0, label: "N" },
+      { id: "b", x: 3, y: 0, label: "B", potential: 0 },
+    ],
+    edges: [
+      { id: "e1", nodeA: "a", nodeB: "m", resistance: 5 },
+      { id: "w", nodeA: "m", nodeB: "n", resistance: 0 },
+      { id: "e2", nodeA: "n", nodeB: "b", resistance: 5 },
+    ],
+  };
+  const c = calculateCurrents(circuit);
+  assertCurrentEq(c, "w", 1, "series wire");
+  assertCurrentEq(c, "e1", 1, "series wire: e1");
+}
+
+// --- Wire from a source node ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A", potential: 10 },
+      { id: "m", x: 1, y: 0, label: "M" },
+      { id: "b", x: 2, y: 0, label: "B", potential: 0 },
+    ],
+    edges: [
+      // Wire listed B->A direction on purpose
+      { id: "w", nodeA: "m", nodeB: "a", resistance: 0 },
+      { id: "e1", nodeA: "m", nodeB: "b", resistance: 2 },
+      { id: "e2", nodeA: "m", nodeB: "b", resistance: 2 },
+    ],
+  };
+  const c = calculateCurrents(circuit);
+  // 10V across 2||2 = 1 ohm => 10A from A into M,
+  // i.e. -10A in the m->a direction
+  assertCurrentEq(c, "w", -10, "source wire");
+}
+
+// --- Parallel wires are undetermined ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A", potential: 10 },
+      { id: "m", x: 1, y: 0, label: "M" },
+      { id: "n", x: 2, y: 0, label: "N" },
+      { id: "b", x: 3, y: 0, label: "B", potential: 0 },
+    ],
+    edges: [
+      { id: "e1", nodeA: "a", nodeB: "m", resistance: 5 },
+      { id: "w1", nodeA: "m", nodeB: "n", resistance: 0 },
+      { id: "w2", nodeA: "m", nodeB: "n", resistance: 0 },
+      { id: "e2", nodeA: "n", nodeB: "b", resistance: 5 },
+    ],
+  };
+  const c = calculateCurrents(circuit);
+  assert(
+    !c.has("w1") && !c.has("w2"),
+    "parallel wires undetermined"
+  );
+  assertCurrentEq(c, "e1", 1, "parallel wires: e1");
+}
+
+// --- Shorted sources leave their piece undetermined ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A", potential: 10 },
+      { id: "b", x: 1, y: 0, label: "B", potential: 0 },
+      { id: "m", x: 2, y: 0, label: "M" },
+      { id: "z", x: 3, y: 0, label: "Z", potential: 0 },
+      // Separate, well-posed piece
+      { id: "p", x: 0, y: 1, label: "P", potential: 4 },
+      { id: "q", x: 1, y: 1, label: "Q", potential: 0 },
+    ],
+    edges: [
+      { id: "s", nodeA: "a", nodeB: "b", resistance: 0 },
+      { id: "e1", nodeA: "b", nodeB: "m", resistance: 5 },
+      { id: "e2", nodeA: "m", nodeB: "z", resistance: 5 },
+      { id: "e3", nodeA: "p", nodeB: "q", resistance: 2 },
+    ],
+  };
+  const c = calculateCurrents(circuit);
+  assert(
+    c.get("s")?.isInfinity() === true,
+    "short between sources is infinite"
+  );
+  assert(
+    !c.has("e1") && !c.has("e2"),
+    "piece with shorted sources undetermined"
+  );
+  assertCurrentEq(c, "e3", 2, "other piece still solved");
+}
+
+// --- Singular piece does not blank other pieces ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A", potential: 10 },
+      { id: "m", x: 1, y: 0, label: "M" },
+      { id: "b", x: 2, y: 0, label: "B", potential: 0 },
+      { id: "p", x: 0, y: 1, label: "P", potential: 4 },
+      { id: "q", x: 1, y: 1, label: "Q", potential: 0 },
+    ],
+    edges: [
+      // 1 + (-1) in parallel at M: zero conductance
+      { id: "e1", nodeA: "a", nodeB: "m", resistance: 1 },
+      { id: "e2", nodeA: "a", nodeB: "m", resistance: -1 },
+      { id: "e3", nodeA: "m", nodeB: "b", resistance: 1 },
+      { id: "e4", nodeA: "m", nodeB: "b", resistance: -1 },
+      { id: "e5", nodeA: "p", nodeB: "q", resistance: 2 },
+    ],
+  };
+  const c = calculateCurrents(circuit);
+  assert(!c.has("e1"), "singular piece undetermined");
+  assertCurrentEq(c, "e5", 2, "other piece solved");
+}
+
+// --- Edge to a missing node is ignored ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A", potential: 10 },
+      { id: "b", x: 1, y: 0, label: "B", potential: 0 },
+    ],
+    edges: [
+      { id: "e1", nodeA: "a", nodeB: "b", resistance: 5 },
+      { id: "e2", nodeA: "a", nodeB: "ghost",
+        resistance: 5 },
+    ],
+  };
+  const c = calculateCurrents(circuit);
+  assertCurrentEq(c, "e1", 2, "missing node: e1");
+  assert(!c.has("e2"), "missing node: e2 has no current");
+}
+
+// --- KCL holds at every interior node ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A", potential: 12 },
+      { id: "c", x: 1, y: 0, label: "C" },
+      { id: "d", x: 1, y: 1, label: "D" },
+      { id: "e", x: 2, y: 1, label: "E" },
+      { id: "b", x: 2, y: 0, label: "B", potential: 0 },
+    ],
+    edges: [
+      { id: "1", nodeA: "a", nodeB: "c", resistance: 1 },
+      { id: "2", nodeA: "a", nodeB: "d", resistance: 2 },
+      { id: "3", nodeA: "c", nodeB: "d", resistance: 3 },
+      { id: "4", nodeA: "d", nodeB: "e", resistance: 0 },
+      { id: "5", nodeA: "c", nodeB: "b", resistance: 4 },
+      { id: "6", nodeA: "e", nodeB: "b", resistance: 5 },
+    ],
+  };
+  const c = calculateCurrents(circuit);
+  for (const n of ["c", "d", "e"]) {
+    let net = RationalExpr.ZERO;
+    let complete = true;
+    for (const e of circuit.edges) {
+      const i = c.get(e.id);
+      if (!i) {
+        complete = false;
+        continue;
+      }
+      if (e.nodeB === n) net = net.add(i);
+      if (e.nodeA === n) net = net.subtract(i);
+    }
+    assert(complete, `KCL at ${n}: all currents known`);
+    assert(net.isZero(), `KCL at ${n}: net ${net}`);
+  }
 }
 
 // --- summary ---
