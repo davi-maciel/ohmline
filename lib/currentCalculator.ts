@@ -3,6 +3,7 @@ import {
   RationalExpr,
   solveLinearSystem,
 } from "@/lib/symbolic";
+import { parseResistances } from "@/lib/circuitCalculator";
 
 /**
  * Union-Find for merging nodes connected by
@@ -81,6 +82,10 @@ export function calculateCurrents(
     return result;
   }
 
+  // Any unparseable value => no results
+  const resistance = parseResistances(circuit);
+  if (!resistance) return result;
+
   // Parse node potentials; separate boundary
   // (known) from interior (unknown)
   const knownPotentials = new Map<
@@ -91,10 +96,9 @@ export function calculateCurrents(
       node.potential !== undefined
       && node.potential !== ""
     ) {
-      knownPotentials.set(
-        node.id,
-        RationalExpr.parse(node.potential)
-      );
+      const pot = RationalExpr.tryParse(node.potential);
+      if (!pot) return result;
+      knownPotentials.set(node.id, pot);
     }
   }
 
@@ -110,7 +114,7 @@ export function calculateCurrents(
   const uf = new UnionFind(allNodeIds);
 
   for (const edge of circuit.edges) {
-    const r = RationalExpr.parse(edge.resistance);
+    const r = resistance.get(edge)!;
     if (r.isZero()) {
       uf.union(edge.nodeA, edge.nodeB);
     }
@@ -137,9 +141,7 @@ export function calculateCurrents(
   // For short-circuit edges, set INFINITY current
   if (shortCircuitGroups.size > 0) {
     for (const edge of circuit.edges) {
-      const r = RationalExpr.parse(
-        edge.resistance
-      );
+      const r = resistance.get(edge)!;
       if (r.isZero()) {
         const rep = uf.find(edge.nodeA);
         if (shortCircuitGroups.has(rep)) {
@@ -175,7 +177,7 @@ export function calculateCurrents(
   // any boundary node
   const conn = new UnionFind([...repSet]);
   for (const edge of circuit.edges) {
-    const r = RationalExpr.parse(edge.resistance);
+    const r = resistance.get(edge)!;
     if (r.isZero() || r.isInfinity()) continue;
     const rA = uf.find(edge.nodeA);
     const rB = uf.find(edge.nodeB);
@@ -223,7 +225,7 @@ export function calculateCurrents(
   }
 
   for (const edge of circuit.edges) {
-    const r = RationalExpr.parse(edge.resistance);
+    const r = resistance.get(edge)!;
     if (r.isZero() || r.isInfinity()) continue;
 
     const G = r.reciprocal();
@@ -291,7 +293,7 @@ export function calculateCurrents(
     // Skip if already set (short circuit)
     if (result.has(edge.id)) continue;
 
-    const r = RationalExpr.parse(edge.resistance);
+    const r = resistance.get(edge)!;
 
     if (r.isInfinity()) {
       result.set(edge.id, RationalExpr.ZERO);

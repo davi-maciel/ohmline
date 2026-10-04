@@ -1,6 +1,11 @@
 import { Polynomial } from "./Polynomial";
 import { Rational, bigGcd } from "./Rational";
 import { gcd, exactDivide } from "./polyGcd";
+import {
+  Algebra,
+  ParseError,
+  parseExpression,
+} from "./parser";
 
 /**
  * Rational expression: numerator / denominator where
@@ -47,6 +52,9 @@ export class RationalExpr {
   // ----- static factories -----
 
   static fromNumber(n: number): RationalExpr {
+    if (Number.isNaN(n)) {
+      throw new ParseError("Not a number");
+    }
     if (!isFinite(n)) {
       return RationalExpr.INFINITY;
     }
@@ -64,26 +72,15 @@ export class RationalExpr {
     if (/^[+-]?(Infinity|∞|inf)$/.test(s)) {
       return RationalExpr.INFINITY;
     }
-    // Decimal literal: parse exactly from the text
-    const asNum = Rational.fromDecimalString(s);
-    if (asNum) {
-      return new RationalExpr(
-        Polynomial.constant(asNum),
-        Polynomial.constant(1)
-      );
-    }
-    // Parse as polynomial expression
-    return new RationalExpr(
-      Polynomial.parse(s),
-      Polynomial.constant(1)
-    );
+    return parseExpression(s, RATIONAL_ALGEBRA);
   }
 
   /**
    * Parse a resistance/value from the circuit data
    * types. Handles numbers (including 0, negative,
    * Infinity), symbolic variables ("r", "V"),
-   * expressions ("2r+10", "3r+5").
+   * expressions ("2r+10", "r/2", "(r+1)^2").
+   * Throws ParseError for invalid input.
    */
   static parse(
     value: number | string
@@ -92,6 +89,18 @@ export class RationalExpr {
       return RationalExpr.fromNumber(value);
     }
     return RationalExpr.fromString(value);
+  }
+
+  /** Like parse(), but null instead of throwing. */
+  static tryParse(
+    value: number | string
+  ): RationalExpr | null {
+    try {
+      return RationalExpr.parse(value);
+    } catch (e) {
+      if (e instanceof ParseError) return null;
+      throw e;
+    }
   }
 
   // ----- arithmetic -----
@@ -283,6 +292,36 @@ export class RationalExpr {
     return [n, d];
   }
 }
+
+const RATIONAL_ALGEBRA: Algebra<RationalExpr> = {
+  number: (r) => new RationalExpr(
+    Polynomial.constant(r),
+    Polynomial.constant(1)
+  ),
+  variable: (name) => new RationalExpr(
+    Polynomial.variable(name),
+    Polynomial.constant(1)
+  ),
+  add: (a, b) => a.add(b),
+  subtract: (a, b) => a.subtract(b),
+  multiply: (a, b) => a.multiply(b),
+  divide: (a, b) => a.divide(b),
+  negate: (a) => a.negate(),
+  power: (a, n) => {
+    const base = n < 0 ? a.reciprocal() : a;
+    let result = RationalExpr.ONE;
+    for (let i = 0; i < Math.abs(n); i++) {
+      result = result.multiply(base);
+    }
+    return result;
+  },
+  asInteger: (t) => {
+    if (!t.isNumeric() || t.isInfinity()) return null;
+    const v = t.num.constantTerm()
+      .divide(t.den.constantTerm());
+    return v.isInteger() ? v.toNumber() : null;
+  },
+};
 
 // ----- helper functions -----
 

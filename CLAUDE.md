@@ -43,6 +43,7 @@ npx tsx lib/symbolic/__tests__/Polynomial.test.ts
 npx tsx lib/symbolic/__tests__/RationalExpr.test.ts
 npx tsx lib/symbolic/__tests__/gaussianElimination.test.ts
 npx tsx lib/symbolic/__tests__/polyGcd.test.ts
+npx tsx lib/symbolic/__tests__/parser.test.ts
 ```
 
 ## Architecture
@@ -72,6 +73,10 @@ A unified symbolic algebra library handles both numeric and symbolic values:
   arithmetic never rounds (`0.1 + 0.2` is exactly `3/10`).
 - **`Polynomial`**: Multivariate polynomial with `Map<monomialKey, Rational>` representation. Supports add, subtract, multiply, scale, negate, parse.
 - **`RationalExpr`**: Rational expression (Polynomial/Polynomial). Unified replacement for the former `SymbolicResistance` and `SymbolicValue` classes. Supports add, subtract, multiply, divide, reciprocal, negate, with automatic simplification.
+- **`parser`**: Exact recursive-descent parser for values (`+ - * / ^`,
+  parentheses, implicit multiplication like `2r`). Invalid input throws
+  `ParseError`; `RationalExpr.tryParse` returns null instead. Products
+  display as `r·s` so they can't be confused with a variable named `rs`.
 - **`polyGcd`**: Multivariate polynomial GCD (recursive primitive PRS) and
   exact division. `RationalExpr` cancels the GCD on every operation, which
   keeps symbolic results in lowest terms and stops expression blowup.
@@ -108,7 +113,7 @@ A unified symbolic algebra library handles both numeric and symbolic values:
    - Early return prevents event bubbling from creating duplicates
    - Users can still intentionally add parallel edges by waiting >500ms
 
-3. **Resistance Values**: Accept numbers (including zero, negative, and Infinity), symbolic variables (e.g., "r"), and expressions (e.g., "2r+10")
+3. **Resistance Values**: Accept numbers (including zero, negative, and Infinity), symbolic variables (e.g., "r"), and expressions (e.g., "2r+10", "r/2"). If any value fails to parse, `calculateEquivalentResistance` returns null and `calculateCurrents` returns an empty map
 
 4. **Equivalent Resistance Calculation**:
 

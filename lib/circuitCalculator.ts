@@ -1,4 +1,4 @@
-import type { Circuit } from "@/types/circuit";
+import type { Circuit, Edge } from "@/types/circuit";
 import {
   RationalExpr,
   solveLinearSystem,
@@ -60,10 +60,27 @@ class UnionFind {
 }
 
 /**
+ * Parse every edge's resistance, or return null if
+ * any of them is invalid.
+ */
+export function parseResistances(
+  circuit: Circuit
+): Map<Edge, RationalExpr> | null {
+  const out = new Map<Edge, RationalExpr>();
+  for (const edge of circuit.edges) {
+    const r = RationalExpr.tryParse(edge.resistance);
+    if (!r) return null;
+    out.set(edge, r);
+  }
+  return out;
+}
+
+/**
  * Calculate equivalent resistance between two nodes
  * using conductance matrix + nodal analysis.
  *
  * Algorithm:
+ * 0. Any unparseable resistance => null.
  * 1. Same node => R=0. Disconnected => R=Infinity.
  * 2. Merge zero-R edges via Union-Find.
  * 3. Keep only the component containing A and B
@@ -85,6 +102,9 @@ export function calculateEquivalentResistance(
   );
   if (!nodeA || !nodeB) return null;
 
+  const resistance = parseResistances(circuit);
+  if (!resistance) return null;
+
   if (nodeAId === nodeBId) {
     return RationalExpr.ZERO;
   }
@@ -99,7 +119,7 @@ export function calculateEquivalentResistance(
   const conn = new UnionFind(allNodeIds);
 
   for (const edge of circuit.edges) {
-    const r = RationalExpr.parse(edge.resistance);
+    const r = resistance.get(edge)!;
     if (r.isZero()) {
       uf.union(edge.nodeA, edge.nodeB);
     }
@@ -159,7 +179,7 @@ export function calculateEquivalentResistance(
 
   // Process each edge
   for (const edge of circuit.edges) {
-    const r = RationalExpr.parse(edge.resistance);
+    const r = resistance.get(edge)!;
 
     // Skip zero-R edges (already merged)
     if (r.isZero()) continue;

@@ -512,9 +512,53 @@ function assertSymEq(
   };
   assertSymEq(
     calculateEquivalentResistance(circuit, "a", "b"),
-    "(gpq+gpw+gqu+guw+pqu+pqw+puw+quw)"
-    + "/(gp+gq+gu+gw+pu+pw+qu+qw)",
+    ("(gpq+gpw+gqu+guw+pqu+pqw+puw+quw)"
+      + "/(gp+gq+gu+gw+pu+pw+qu+qw)")
+      .replace(/([a-z])(?=[a-z])/g, "$1\u00B7"),
     "symbolic Wheatstone"
+  );
+}
+
+// --- Invalid resistance => null ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A" },
+      { id: "b", x: 1, y: 0, label: "B" },
+    ],
+    edges: [
+      { id: "e1", nodeA: "a", nodeB: "b",
+        resistance: "sqrt(2)" },
+    ],
+  };
+  assert(
+    calculateEquivalentResistance(circuit, "a", "b")
+      === null,
+    "invalid resistance gives null"
+  );
+}
+
+// --- Division in a resistance ---
+
+{
+  const circuit: Circuit = {
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A" },
+      { id: "m", x: 1, y: 0, label: "M" },
+      { id: "b", x: 2, y: 0, label: "B" },
+    ],
+    edges: [
+      { id: "e1", nodeA: "a", nodeB: "m",
+        resistance: "r/2" },
+      { id: "e2", nodeA: "m", nodeB: "b",
+        resistance: "r/2" },
+    ],
+  };
+  assertSymEq(
+    calculateEquivalentResistance(circuit, "a", "b"),
+    "r",
+    "r/2 + r/2 = r"
   );
 }
 

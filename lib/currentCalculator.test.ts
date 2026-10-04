@@ -403,6 +403,33 @@ function assertCurrentEq(
   );
 }
 
+// --- Invalid values => no currents ---
+
+{
+  const base = (r: string, v: string): Circuit => ({
+    nodes: [
+      { id: "a", x: 0, y: 0, label: "A", potential: v },
+      { id: "b", x: 1, y: 0, label: "B", potential: 0 },
+    ],
+    edges: [
+      { id: "e1", nodeA: "a", nodeB: "b",
+        resistance: r },
+    ],
+  });
+  assert(
+    calculateCurrents(base("r+", "10")).size === 0,
+    "invalid resistance gives no currents"
+  );
+  assert(
+    calculateCurrents(base("5", "!!")).size === 0,
+    "invalid potential gives no currents"
+  );
+  assertCurrentEq(
+    calculateCurrents(base("5", "10")), "e1", 2,
+    "valid values still work"
+  );
+}
+
 // --- summary ---
 
 console.log(

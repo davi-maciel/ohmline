@@ -1,8 +1,9 @@
-import {
-  parse as mathParse,
-  MathNode,
-} from "mathjs";
 import { Rational } from "./Rational";
+import {
+  Algebra,
+  ParseError,
+  parseExpression,
+} from "./parser";
 
 /**
  * Multivariate polynomial with exact rational
@@ -51,124 +52,16 @@ export class Polynomial {
   /**
    * Parse a string expression into a Polynomial.
    * Handles: "r", "3r+5", "10", "2r1+r2", "-r",
-   * "3.5", "0", "2*a", "3r^2", etc.
-   *
-   * Uses mathjs for proper expression parsing,
-   * then converts the AST to our Polynomial.
+   * "3.5", "0", "2*a", "3r^2", "(r+1)/2", etc.
+   * Throws ParseError for invalid input or division
+   * by a non-constant.
    */
-  static parse(expr: string): Polynomial {
-    if (typeof expr !== "string") {
+  static parse(expr: string | number): Polynomial {
+    if (typeof expr === "number") {
       return Polynomial.constant(expr);
     }
-    expr = expr.replace(/\s/g, "");
-    if (expr === "" || expr === "0") {
-      return Polynomial.zero();
-    }
-
-    // Pure decimal literal: parse exactly
-    const asNum = Rational.fromDecimalString(expr);
-    if (asNum) {
-      return Polynomial.constant(asNum);
-    }
-
-    // Insert implicit multiplication for patterns
-    // like "2r", "3x1" so mathjs can parse them.
-    // Matches: digit followed by letter, or
-    // letter/digit followed by letter (for "rr")
-    const prepared = expr.replace(
-      /(\d)([a-zA-Z])/g, "$1 * $2"
-    );
-
-    try {
-      const tree = mathParse(prepared);
-      return Polynomial.fromMathNode(tree);
-    } catch {
-      // Fallback: treat as a single variable
-      return Polynomial.variable(expr);
-    }
-  }
-
-  /**
-   * Convert a mathjs AST node into a Polynomial.
-   */
-  private static fromMathNode(
-    node: MathNode
-  ): Polynomial {
-    switch (node.type) {
-      case "ConstantNode": {
-        const val =
-          (node as unknown as { value: number }).value;
-        return Polynomial.constant(val);
-      }
-
-      case "SymbolNode": {
-        const name =
-          (node as unknown as { name: string }).name;
-        return Polynomial.variable(name);
-      }
-
-      case "OperatorNode": {
-        const op = (node as unknown as { op: string }).op;
-        const args =
-          (node as unknown as { args: MathNode[] }).args;
-
-        if (op === "+" && args.length === 2) {
-          return Polynomial.fromMathNode(args[0])
-            .add(Polynomial.fromMathNode(args[1]));
-        }
-        if (op === "-" && args.length === 2) {
-          return Polynomial.fromMathNode(args[0])
-            .subtract(
-              Polynomial.fromMathNode(args[1])
-            );
-        }
-        if (op === "-" && args.length === 1) {
-          return Polynomial.fromMathNode(
-            args[0]
-          ).negate();
-        }
-        if (op === "+" && args.length === 1) {
-          return Polynomial.fromMathNode(args[0]);
-        }
-        if (op === "*" && args.length === 2) {
-          return Polynomial.fromMathNode(args[0])
-            .multiply(
-              Polynomial.fromMathNode(args[1])
-            );
-        }
-        if (op === "^" && args.length === 2) {
-          const base =
-            Polynomial.fromMathNode(args[0]);
-          const expNode = args[1];
-          if (
-            expNode.type === "ConstantNode"
-          ) {
-            const exp =
-              (expNode as unknown as { value: number }).value;
-            if (
-              Number.isInteger(exp) && exp >= 0
-            ) {
-              let result = Polynomial.constant(1);
-              for (let i = 0; i < exp; i++) {
-                result = result.multiply(base);
-              }
-              return result;
-            }
-          }
-        }
-        break;
-      }
-
-      case "ParenthesisNode": {
-        const content =
-          (node as unknown as { content: MathNode }).content;
-        return Polynomial.fromMathNode(content);
-      }
-    }
-
-    // Unsupported node: treat the string as a
-    // variable name
-    return Polynomial.variable(node.toString());
+    if (expr.trim() === "") return Polynomial.zero();
+    return parseExpression(expr, POLYNOMIAL_ALGEBRA);
   }
 
   // ----- arithmetic -----
@@ -381,8 +274,8 @@ export function compareMonomials(a: string, b: string): number {
 /**
  * Format a monomial key for display.
  * "r" => "r", "r*r" => "r^2",
- * "r1*r2" => "r1r2", "r*r*r" => "r^3",
- * "r*s" => "rs"
+ * "r1*r2" => "r1·r2", "r*r*r" => "r^3",
+ * "r*s" => "r·s"
  */
 function formatMonomial(key: string): string {
   if (key === "") return "";
@@ -406,5 +299,38 @@ function formatMonomial(key: string): string {
       result.push(`${v}^${c}`);
     }
   }
-  return result.join("");
+  // "·" keeps r·s distinct from a variable named rs
+  return result.join("\u00B7");
 }
+
+const POLYNOMIAL_ALGEBRA: Algebra<Polynomial> = {
+  number: (r) => Polynomial.constant(r),
+  variable: (name) => Polynomial.variable(name),
+  add: (a, b) => a.add(b),
+  subtract: (a, b) => a.subtract(b),
+  multiply: (a, b) => a.multiply(b),
+  divide: (a, b) => {
+    if (!b.isConstant() || b.isZero()) {
+      throw new ParseError(
+        "Polynomial division needs a non-zero constant"
+      );
+    }
+    return a.scale(Rational.ONE.divide(b.constantTerm()));
+  },
+  negate: (a) => a.negate(),
+  power: (a, n) => {
+    if (n < 0) {
+      throw new ParseError(
+        "Negative exponent in a polynomial"
+      );
+    }
+    let result = Polynomial.constant(1);
+    for (let i = 0; i < n; i++) result = result.multiply(a);
+    return result;
+  },
+  asInteger: (t) => {
+    if (!t.isConstant()) return null;
+    const c = t.constantTerm();
+    return c.isInteger() ? c.toNumber() : null;
+  },
+};
