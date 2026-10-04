@@ -2,26 +2,302 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Functional base shared by every look. Geometry
+ * only: each look in public/ui/<name>.css owns
+ * typography, color and shape, and may retune the
+ * layout variables below.
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --gap: 16px;
+  --top-h: 48px;
+  --status-h: 32px;
+  --tools-w: 168px;
+  --insp-w: 288px;
+  --stack-top: calc(var(--gap) * 2 + var(--top-h));
+  --stack-bottom: calc(var(--gap) * 2 + var(--status-h));
 }
 
-@media (prefers-color-scheme: dark) {
+html,
+body,
+.oh-main {
+  height: 100%;
+  margin: 0;
+}
+
+.oh-main {
+  width: 100vw;
+  overflow: hidden;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+button,
+select {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* ---- canvas ---- */
+
+.oh-app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.oh-canvas {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.oh-grid,
+.oh-wires {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Fallback canvas colors; looks override */
+.oh-grid-dot {
+  fill: #d1d5db;
+}
+
+.oh-grid-line,
+.oh-grid-major {
+  stroke: none;
+}
+
+.oh-edge-line {
+  stroke: #4b5563;
+  stroke-width: 2;
+}
+
+.oh-edge-label {
+  pointer-events: auto;
+  font-size: 12px;
+  fill: currentColor;
+  user-select: none;
+}
+
+[data-mode="select"] .oh-edge-label,
+[data-mode="delete"] .oh-edge-label {
+  cursor: pointer;
+}
+
+.oh-edge-current {
+  pointer-events: none;
+  font-size: 11px;
+  user-select: none;
+}
+
+.oh-nodes {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+}
+
+.oh-node {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%);
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* ---- chrome ---- */
+
+.oh-top {
+  position: absolute;
+  z-index: 20;
+  top: var(--gap);
+  left: var(--gap);
+  right: var(--gap);
+  min-height: var(--top-h);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.oh-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin-right: auto;
+}
+
+.oh-brand-name,
+.oh-brand-tag {
+  white-space: nowrap;
+}
+
+.oh-history {
+  display: flex;
+  gap: 6px;
+}
+
+.oh-tools {
+  position: absolute;
+  z-index: 10;
+  top: var(--stack-top);
+  left: var(--gap);
+  width: var(--tools-w);
+  max-height: calc(100% - var(--stack-top) - var(--stack-bottom));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.oh-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.oh-tool,
+.oh-btn {
+  font: inherit;
+  text-align: left;
+}
+
+.oh-inspector {
+  position: absolute;
+  z-index: 10;
+  top: var(--stack-top);
+  right: var(--gap);
+  width: var(--insp-w);
+  max-height: calc(100% - var(--stack-top) - var(--stack-bottom));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.oh-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.oh-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.oh-input {
+  font: inherit;
+  min-width: 0;
+  flex: 1;
+}
+
+.oh-input-label {
+  flex: 0 0 4.5em;
+}
+
+.oh-row-name {
+  flex: 0 0 auto;
+  min-width: 5em;
+  white-space: nowrap;
+}
+
+.oh-status {
+  position: absolute;
+  z-index: 20;
+  left: var(--gap);
+  right: var(--gap);
+  bottom: var(--gap);
+  min-height: var(--status-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.oh-hint,
+.oh-count {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- phones: tools become a strip, inspector a
+   bottom sheet ---- */
+
+@media (max-width: 640px) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --gap: 8px;
+  }
+
+  .oh-brand-tag,
+  .oh-count {
+    display: none;
+  }
+
+  .oh-tools {
+    right: var(--gap);
+    width: auto;
+    max-height: none;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .oh-group {
+    flex-direction: row;
+    flex: none;
+  }
+
+  .oh-group-title {
+    display: none;
+  }
+
+  .oh-tool,
+  .oh-btn {
+    white-space: nowrap;
+  }
+
+  .oh-inspector {
+    top: auto;
+    left: var(--gap);
+    bottom: var(--stack-bottom);
+    width: auto;
+    max-height: 38vh;
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
   }
 }

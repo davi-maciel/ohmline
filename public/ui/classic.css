@@ -1,0 +1,224 @@
+/* UI "Classic": the original Ohmline look, tidied.
+   White canvas with a dot grid, floating frosted
+   cards, blue nodes, red wires when current flows.
+   Inspiration: the app as it shipped, plus tldraw /
+   Excalidraw style floating panels. */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+:root {
+  --bg: #ffffff;
+  --fg: #111827;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --card: rgba(255, 255, 255, 0.92);
+  --btn: #e5e7eb;
+  --btn-fg: #374151;
+  --blue: #3b82f6;
+  --blue-d: #2563eb;
+  --green: #10b981;
+  --red: #dc2626;
+  --purple: #8b5cf6;
+  --radius: 10px;
+  --shadow: 0 6px 24px rgba(17, 24, 39, 0.12),
+    0 1px 3px rgba(17, 24, 39, 0.08);
+  --sans: "Inter", system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  color-scheme: light;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.45 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* canvas */
+.oh-canvas { background: var(--bg); }
+.oh-grid-dot { fill: #d1d5db; }
+.oh-edge-line { stroke: #4b5563; stroke-width: 2; }
+.oh-edge.is-live .oh-edge-line { stroke: var(--red); stroke-width: 3; }
+.oh-edge.is-selected .oh-edge-line {
+  stroke: var(--green);
+  stroke-width: 4;
+  stroke-dasharray: 5 5;
+}
+.oh-edge-label {
+  fill: #1f2937;
+  font: 500 12px var(--sans);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+.oh-edge-current {
+  fill: var(--red);
+  font: 700 11px var(--sans);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+}
+
+.oh-node {
+  border-radius: 50%;
+  background: var(--blue);
+  color: #fff;
+  font: 700 12px var(--sans);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: background 0.12s;
+}
+.oh-node:hover { background: var(--blue-d); }
+.oh-node.is-source { box-shadow: 0 0 0 3px #fde68a; }
+.oh-node.is-calc { background: var(--purple); box-shadow: 0 0 0 4px #ddd6fe; }
+.oh-node.is-selected {
+  background: var(--green);
+  box-shadow: 0 0 0 4px #a7f3d0;
+}
+
+/* top bar */
+.oh-top {
+  background: var(--card);
+  backdrop-filter: blur(8px);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 0 8px 0 14px;
+}
+.oh-brand-name { font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
+.oh-brand-tag { color: var(--muted); font-size: 12px; }
+
+.oh-btn,
+.oh-tool {
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: var(--btn);
+  color: var(--btn-fg);
+  font-size: 13px;
+  font-weight: 500;
+}
+.oh-btn:hover:not(:disabled),
+.oh-tool:hover { background: #d1d5db; }
+.oh-btn:disabled { background: #f3f4f6; color: #9ca3af; }
+.oh-tool[aria-pressed="true"] { background: var(--blue); color: #fff; }
+.oh-tool[data-tool="delete"][aria-pressed="true"] { background: var(--red); }
+.oh-tool[data-tool="measure"][aria-pressed="true"] {
+  background: var(--purple);
+}
+.oh-tool[data-tool="currents"][aria-pressed="true"] { background: var(--red); }
+
+.uiswitch {
+  font: 500 13px var(--sans);
+  color: var(--btn-fg);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+/* tools */
+.oh-tools {
+  background: var(--card);
+  backdrop-filter: blur(8px);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 10px;
+  gap: 12px;
+}
+.oh-group { gap: 6px; }
+.oh-group + .oh-group { border-top: 1px solid var(--line); padding-top: 12px; }
+.oh-group-title {
+  margin: 0 0 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* inspector */
+.oh-inspector { gap: 12px; }
+.oh-card {
+  background: var(--card);
+  backdrop-filter: blur(8px);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+.oh-card-title { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
+.oh-rows { gap: 6px; }
+.oh-row-sym,
+.oh-row-name { color: var(--muted); font-size: 12px; }
+.oh-row-dash { margin: 0 2px; }
+.oh-row.is-selected .oh-row-name { color: var(--green); font-weight: 600; }
+.oh-input {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: #fff;
+  color: var(--fg);
+}
+.oh-input:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px #dbeafe;
+}
+.oh-input::placeholder { color: #9ca3af; }
+.oh-input-label { font-weight: 600; }
+
+.oh-result {
+  background: rgba(245, 243, 255, 0.95);
+  box-shadow: var(--shadow), inset 0 0 0 2px #ddd6fe;
+}
+.oh-result .oh-card-title { color: #4c1d95; }
+.oh-result-between { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+.oh-result-between b { color: var(--fg); }
+.oh-result-value {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  background: #fff;
+  border-radius: 6px;
+  border: 1px solid #ddd6fe;
+  color: #6d28d9;
+  font-size: 20px;
+  font-weight: 700;
+  overflow-wrap: break-word;
+}
+.oh-btn-small {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--purple);
+  color: #fff;
+}
+.oh-btn-small:hover:not(:disabled) { background: #7c3aed; }
+
+/* status */
+.oh-status {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  max-width: calc(100% - 2 * var(--gap));
+  background: var(--card);
+  backdrop-filter: blur(8px);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  padding: 0 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.oh-count { color: var(--fg); font-weight: 500; }
+
+@media (max-width: 640px) {
+  .oh-tools { padding: 6px; gap: 6px; }
+  .oh-group + .oh-group {
+    border-top: 0;
+    padding-top: 0;
+    border-left: 1px solid var(--line);
+    padding-left: 6px;
+  }
+}

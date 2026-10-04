@@ -65,6 +65,20 @@ The main component manages all circuit state using React hooks:
 - Undo/Redo implemented with history stack (50-state limit) and `historyIndex`
 - **Edge Deduplication**: `lastEdgeAddRef` tracks the last edge added with timestamp to prevent duplicate edges from event bubbling (500ms window)
 
+### Interface Looks (`public/ui/`, `components/UiSwitch.tsx`)
+
+- `CircuitCanvas` renders semantic class names only (`oh-top`, `oh-tools`,
+  `oh-tool[aria-pressed]`, `oh-inspector`, `oh-card`, `oh-node.is-selected`,
+  `oh-edge.is-live`, ...). Do not add visual Tailwind classes to it.
+- `app/globals.css` holds functional layout only (positions, layout CSS
+  variables like `--gap`, `--top-h`, phone breakpoint).
+- Each look is one stylesheet in `public/ui/<id>.css` owning type, color and
+  shape; the list lives in `lib/ui.ts`. An inline head script picks the look
+  from `#ui=` or `localStorage` before first paint; `UiSwitch` swaps the
+  `<link>` without a flash.
+- Never apply `text-transform` to user values (variables are case
+  sensitive: `r` is not `R`).
+
 ### Symbolic Math System (`lib/symbolic/`)
 
 A unified symbolic algebra library handles both numeric and symbolic values:

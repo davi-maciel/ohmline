@@ -1,0 +1,279 @@
+/* UI "Blueprint": a cyanotype engineering drawing.
+   Inspiration: architectural and electrical blueprints
+   (white linework on Prussian blue, minor/major grid,
+   a boxed title block in the corner), teenage
+   engineering product pages (tiny technical labels), and
+   Falstad's simulator (current shown moving along wires).
+   Condensed caps for headings, mono for values. */
+@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+
+:root {
+  --paper: #123a66;
+  --paper-2: #0f3157;
+  --line: #ffffff;
+  --line-2: rgba(255, 255, 255, 0.55);
+  --line-3: rgba(255, 255, 255, 0.22);
+  --cyan: #8ae6ff;
+  --amber: #ffd27a;
+  --cond: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --mono: "IBM Plex Mono", Menlo, monospace;
+  --gap: 18px;
+  --top-h: 46px;
+  --status-h: 40px;
+  --tools-w: 176px;
+  --insp-w: 296px;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--paper);
+  color: var(--line);
+  font: 12px/1.5 var(--mono);
+}
+::selection { background: var(--line); color: var(--paper); }
+:focus-visible { outline: 1px dashed var(--line); outline-offset: 3px; }
+
+/* drawing sheet */
+.oh-canvas {
+  background: var(--paper);
+  box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.25);
+}
+.oh-grid-dot { fill: none; }
+.oh-grid-line { stroke: rgba(255, 255, 255, 0.07); stroke-width: 1; }
+.oh-grid-major { stroke: rgba(255, 255, 255, 0.16); stroke-width: 1; }
+.oh-edge-line { stroke: var(--line); stroke-width: 1.5; }
+.oh-edge.is-live .oh-edge-line {
+  stroke: var(--cyan);
+  stroke-width: 2;
+  stroke-dasharray: 10 6;
+  animation: oh-flow 1.2s linear infinite;
+}
+.oh-edge.is-live.is-reverse .oh-edge-line { animation-direction: reverse; }
+@keyframes oh-flow { to { stroke-dashoffset: -16; } }
+.oh-edge.is-selected .oh-edge-line {
+  stroke: var(--amber);
+  stroke-dasharray: 2 4;
+  animation: none;
+  stroke-width: 2.5;
+}
+.oh-edge-label {
+  fill: var(--line);
+  font: 500 12px var(--mono);
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 5px;
+  stroke-linejoin: round;
+}
+.oh-edge-current {
+  fill: var(--cyan);
+  font: 500 11px var(--mono);
+  paint-order: stroke; stroke: var(--paper); stroke-width: 5px;
+}
+
+.oh-node {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 1.5px solid var(--line);
+  color: var(--line);
+  font: 600 13px var(--cond);
+  letter-spacing: 0.04em;
+}
+/* crosshair ticks, like a drafted junction */
+.oh-node::before, .oh-node::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  --tick: var(--line-2);
+}
+.oh-node::before {
+  left: -8px; right: -8px; top: 50%; height: 1px;
+  background:
+    linear-gradient(
+      to right,
+      var(--tick) 6px,
+      transparent 6px calc(100% - 6px),
+      var(--tick) calc(100% - 6px)
+    );
+}
+.oh-node::after {
+  top: -8px; bottom: -8px; left: 50%; width: 1px;
+  background:
+    linear-gradient(
+      to bottom,
+      var(--tick) 6px,
+      transparent 6px calc(100% - 6px),
+      var(--tick) calc(100% - 6px)
+    );
+}
+.oh-node:hover { background: var(--paper-2); }
+.oh-node.is-source { background: var(--line); color: var(--paper); }
+.oh-node.is-calc {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  box-shadow: 0 0 0 3px var(--paper), 0 0 0 4px var(--cyan);
+}
+.oh-node.is-selected {
+  border-color: var(--amber);
+  color: var(--amber);
+  border-style: dashed;
+}
+
+/* sheet header */
+.oh-top {
+  padding: 0 4px 0 14px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+.oh-brand-name {
+  font: 700 22px/1 var(--cond);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.oh-brand-tag {
+  font: 500 11px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--line-2);
+}
+.oh-brand-tag::before { content: "/ "; }
+.oh-history { gap: 4px; }
+
+.oh-btn, .oh-tool {
+  border: 1px solid var(--line-3); border-radius: 0;
+  background: transparent;
+  color: var(--line);
+  padding: 5px 10px;
+  font: 500 11px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.oh-btn:hover:not(:disabled), .oh-tool:hover { border-color: var(--line); }
+.oh-btn:disabled { color: var(--line-3); }
+.oh-tool[aria-pressed="true"] {
+  background: var(--line);
+  color: var(--paper);
+  border-color: var(--line);
+}
+.oh-tool[data-tool="delete"][aria-pressed="true"] {
+  background: var(--amber);
+  border-color: var(--amber);
+}
+.oh-tool[data-tool="currents"][aria-pressed="true"] {
+  background: var(--cyan);
+  border-color: var(--cyan);
+}
+
+.uiswitch {
+  appearance: none;
+  border: 1px solid var(--line-3); border-radius: 0;
+  background-color: var(--paper);
+  color: var(--line);
+  padding: 5px 24px 5px 10px;
+  font: 500 11px var(--mono); letter-spacing: 0.08em; text-transform: uppercase;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--line) 50%),
+    linear-gradient(135deg, var(--line) 50%, transparent 50%);
+  background-position: right 13px center, right 9px center;
+  background-size: 4px 4px; background-repeat: no-repeat;
+}
+
+/* panels: boxed, with a lettered heading strip */
+.oh-tools, .oh-card {
+  border: 1px solid var(--line);
+  background: rgba(18, 58, 102, 0.92);
+}
+.oh-tools { gap: 0; }
+.oh-group { gap: 4px; padding: 0 10px 10px; }
+.oh-group + .oh-group { border-top: 1px solid var(--line-3); }
+.oh-group-title, .oh-card-title {
+  margin: 0 -10px 6px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--line-3);
+  font: 600 14px var(--cond);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.oh-group-title::before, .oh-card-title::before {
+  color: var(--line-2);
+  margin-right: 8px;
+}
+.oh-group:nth-child(1) .oh-group-title::before { content: "A"; }
+.oh-group:nth-child(2) .oh-group-title::before { content: "B"; }
+.oh-group:nth-child(3) .oh-group-title::before { content: "C"; }
+
+.oh-inspector { gap: var(--gap); }
+.oh-card { padding: 0 10px 10px; }
+.oh-card-title::before { content: "\25B8"; }
+.oh-rows { gap: 0; }
+.oh-row { gap: 8px; border-bottom: 1px dashed var(--line-3); }
+.oh-row.is-selected .oh-row-name { color: var(--amber); }
+.oh-row-sym, .oh-row-name { color: var(--line-2); letter-spacing: 0.04em; }
+.oh-row-dash { margin: 0 2px; }
+.oh-input {
+  border: 0; border-radius: 0; background: transparent;
+  color: var(--line);
+  padding: 5px 0;
+  font: 500 12px var(--mono);
+}
+.oh-input:focus { outline: none; color: var(--amber); }
+.oh-input::placeholder { color: var(--line-3); text-transform: uppercase; }
+.oh-input-label { font: 600 14px var(--cond); letter-spacing: 0.06em; }
+
+.oh-result { border-color: var(--cyan); }
+.oh-result .oh-card-title {
+  color: var(--cyan);
+  border-bottom-color: rgba(138, 230, 255, 0.35);
+}
+.oh-result-between { margin: 0; color: var(--line-2); font-size: 11px; }
+.oh-result-between b { color: var(--line); font-weight: 600; }
+.oh-result-value {
+  margin: 8px 0;
+  font: 600 26px/1.15 var(--cond);
+  letter-spacing: 0.02em;
+  color: var(--cyan);
+  overflow-wrap: break-word;
+}
+.oh-result-symbol { color: var(--line-2); font-weight: 500; }
+
+/* title block, lower right */
+.oh-status {
+  left: auto;
+  right: var(--gap);
+  width: min(560px, calc(100% - 2 * var(--gap)));
+  gap: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+}
+.oh-hint, .oh-count {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+}
+.oh-hint { flex: 1; color: var(--line-2); }
+.oh-hint::before {
+  content: "NOTE";
+  font: 600 13px var(--cond);
+  letter-spacing: 0.14em;
+  color: var(--line);
+  margin-right: 12px;
+}
+.oh-count {
+  border-left: 1px solid var(--line);
+  font: 600 14px var(--cond);
+  letter-spacing: 0.12em;
+}
+
+@media (max-width: 640px) {
+  .oh-brand-name { font-size: 18px; }
+  .oh-tools { gap: 0; }
+  .oh-group { padding: 6px; gap: 4px; }
+  .oh-group + .oh-group { border-top: 0; border-left: 1px solid var(--line-3); }
+  .oh-status { left: var(--gap); width: auto; }
+  .oh-hint::before { display: none; }
+}

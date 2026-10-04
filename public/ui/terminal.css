@@ -1,0 +1,259 @@
+/* UI "Terminal": amber phosphor on a night-blue screen.
+   Inspiration: Falstad's circuit simulator (black canvas,
+   current drawn as moving dots), Advent of Code (mono,
+   bracketed links), and vim's status line (mode shown in
+   the bottom bar). One monospace face, 13px. */
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,700;1,400&display=swap");
+
+:root {
+  --bg: #0b0e14;
+  --bg-2: #10151d;
+  --bg-3: #161d27;
+  --fg: #cbd3dc;
+  --fg-2: #97a3b0;
+  --dim: #5d6975;
+  --line: #243040;
+  --line-2: #34435a;
+  --amber: #ffb000;
+  --amber-2: #ffcb4d;
+  --green: #4cd964;
+  --red: #ff5f56;
+  --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  --gap: 0px;
+  --top-h: 38px;
+  --status-h: 28px;
+  --tools-w: 190px;
+  --insp-w: 300px;
+  color-scheme: dark;
+}
+
+body { background: var(--bg); color: var(--fg); font: 13px/1.55 var(--mono); }
+::selection { background: var(--amber); color: #000; }
+:focus-visible { outline: 1px solid var(--amber); outline-offset: 2px; }
+
+/* canvas */
+.oh-canvas { background: var(--bg); }
+.oh-grid-dot { fill: #1c2532; }
+.oh-edge-line { stroke: var(--dim); stroke-width: 1.5; }
+.oh-edge.is-live .oh-edge-line {
+  stroke: var(--amber);
+  stroke-width: 2;
+  stroke-dasharray: 2 8;
+  stroke-linecap: round;
+  animation: oh-flow 0.9s linear infinite;
+}
+.oh-edge.is-live.is-reverse .oh-edge-line { animation-direction: reverse; }
+@keyframes oh-flow { to { stroke-dashoffset: -10; } }
+.oh-edge.is-selected .oh-edge-line {
+  stroke: var(--green);
+  stroke-dasharray: 6 4;
+  animation: none;
+}
+.oh-edge-label {
+  fill: var(--fg-2);
+  font: 12px var(--mono);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+}
+.oh-edge-current {
+  fill: var(--amber);
+  font: 11px var(--mono);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+}
+
+.oh-node {
+  width: 30px; height: 26px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  color: var(--amber);
+  font: 700 12px var(--mono);
+}
+.oh-node:hover { border-color: var(--amber); }
+.oh-node.is-source { border-color: var(--green); color: var(--green); }
+.oh-node.is-calc {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: #000;
+}
+.oh-node.is-selected {
+  background: var(--green);
+  border-color: var(--green);
+  color: #000;
+}
+
+/* bracketed controls */
+.oh-btn, .oh-tool {
+  border: 0; border-radius: 0; background: none;
+  padding: 2px 0;
+  color: var(--fg-2);
+  font: 13px var(--mono);
+}
+.oh-btn::before, .oh-tool::before {
+  content: "[";
+  color: var(--dim);
+  margin-right: 4px;
+}
+.oh-btn::after, .oh-tool::after {
+  content: "]";
+  color: var(--dim);
+  margin-left: 4px;
+}
+.oh-btn:hover:not(:disabled), .oh-tool:hover { color: var(--fg); }
+.oh-btn:disabled { color: var(--line-2); }
+.oh-btn:disabled::before, .oh-btn:disabled::after { color: var(--line); }
+.oh-tool[aria-pressed="true"] { color: var(--amber); }
+.oh-tool[aria-pressed="true"]::before { content: "> ["; color: var(--amber); }
+.oh-tool[aria-pressed="true"]::after { color: var(--amber); }
+.oh-tool[data-tool="delete"][aria-pressed="true"],
+.oh-tool[data-tool="delete"][aria-pressed="true"]::before,
+.oh-tool[data-tool="delete"][aria-pressed="true"]::after { color: var(--red); }
+
+/* status-bar header */
+.oh-top {
+  padding: 0 14px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+.oh-brand-name { color: var(--amber); font-weight: 700; }
+.oh-brand-name::before {
+  content: "ohmline@lab:~$ ";
+  color: var(--green);
+  font-weight: 400;
+}
+.oh-brand-name { font-size: 0; }
+.oh-brand-name::before { font-size: 13px; }
+.oh-brand-name::after { content: "ohmline"; font-size: 13px; }
+.oh-brand-tag { color: var(--dim); }
+.oh-brand-tag::before { content: "// "; }
+.oh-history { gap: 14px; }
+.uiswitch {
+  appearance: none;
+  border: 1px solid var(--line-2); border-radius: 0;
+  background-color: var(--bg);
+  color: var(--fg-2);
+  padding: 2px 22px 2px 8px;
+  font: 12px var(--mono);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--fg-2) 50%),
+    linear-gradient(135deg, var(--fg-2) 50%, transparent 50%);
+  background-position: right 12px center, right 8px center;
+  background-size: 4px 4px; background-repeat: no-repeat;
+}
+.uiswitch:hover { border-color: var(--amber); }
+
+/* side panes */
+.oh-tools {
+  top: var(--top-h);
+  bottom: var(--status-h);
+  max-height: none;
+  padding: 14px;
+  gap: 18px;
+  background: rgba(16, 21, 29, 0.92);
+  border-right: 1px solid var(--line);
+}
+.oh-group { gap: 2px; align-items: flex-start; }
+.oh-group-title {
+  margin: 0 0 4px;
+  font: 700 13px var(--mono);
+  color: var(--fg);
+}
+.oh-group-title::before { content: "## "; color: var(--dim); font-weight: 400; }
+.oh-group-title { text-transform: lowercase; }
+
+.oh-inspector {
+  top: var(--top-h);
+  bottom: var(--status-h);
+  max-height: none;
+  padding: 14px;
+  gap: 18px;
+  background: rgba(16, 21, 29, 0.92);
+  border-left: 1px solid var(--line);
+}
+.oh-card-title {
+  margin: 0 0 6px;
+  font: 700 13px var(--mono);
+  color: var(--fg);
+}
+.oh-card-title::before { content: "## "; color: var(--dim); font-weight: 400; }
+.oh-rows { gap: 0; border: 1px solid var(--line); }
+.oh-row { padding: 3px 8px; gap: 6px; }
+.oh-row + .oh-row { border-top: 1px solid var(--line); }
+.oh-row.is-selected { background: var(--bg-3); }
+.oh-row.is-selected .oh-row-name { color: var(--green); }
+.oh-row-sym, .oh-row-name { color: var(--dim); }
+.oh-row-dash { color: var(--line-2); }
+.oh-input {
+  border: 0; border-radius: 0; background: transparent;
+  color: var(--fg);
+  padding: 2px 0;
+  font: 13px var(--mono);
+  caret-color: var(--amber);
+}
+.oh-input:focus { outline: none; color: var(--amber-2); }
+.oh-input::placeholder { color: var(--line-2); }
+.oh-input-label { color: var(--amber); font-weight: 700; flex-basis: 4em; }
+
+.oh-result .oh-card-title::before { content: "$ "; color: var(--green); }
+.oh-result-between { margin: 0; color: var(--fg-2); }
+.oh-result-between::before { content: "// "; color: var(--dim); }
+.oh-result-between b { color: var(--amber); font-weight: 400; }
+.oh-result-value {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--amber);
+  color: var(--amber);
+  font: 700 15px var(--mono);
+  overflow-wrap: break-word;
+}
+.oh-result-symbol { color: var(--fg-2); font-weight: 400; }
+
+/* vim-like status line */
+.oh-status {
+  left: 0; right: 0; bottom: 0;
+  padding: 0 14px;
+  background: var(--bg-3);
+  border-top: 1px solid var(--line);
+  color: var(--fg-2);
+  font-size: 12px;
+}
+.oh-hint::before {
+  color: #000;
+  background: var(--amber);
+  padding: 1px 6px;
+  margin-right: 10px;
+  font-weight: 700;
+}
+[data-mode="select"] .oh-hint::before { content: "SELECT"; }
+[data-mode="add-node"] .oh-hint::before { content: "NODE"; }
+[data-mode="add-edge"] .oh-hint::before { content: "RESISTOR"; }
+[data-mode="delete"] .oh-hint::before {
+  content: "DELETE";
+  background: var(--red);
+}
+[data-mode="calculate-resistance"] .oh-hint::before {
+  content: "MEASURE";
+  background: var(--green);
+}
+.oh-count { color: var(--dim); }
+
+@media (max-width: 640px) {
+  .oh-tools {
+    bottom: auto;
+    padding: 8px 10px;
+    gap: 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .oh-group { gap: 10px; }
+  .oh-inspector {
+    top: auto;
+    bottom: var(--status-h);
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    max-height: 40vh;
+  }
+  .oh-brand-name::before { content: "~$ "; }
+}
